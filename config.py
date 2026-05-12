@@ -53,7 +53,7 @@ COMPENSADO_DEPTS = {'CONTABILIDAD', 'SOSTENIBILIDAD'}
 DEPT_STARTS = {
     'SEGURIDAD':         [6, 8, 15, 16, 22, 23],
     'RECEPCION':         [6, 8, 9, 15, 22],
-    'RESTAURANTE SALON': [6, 7, 11, 12, 14, 15],
+    'RESTAURANTE SALON': [6, 7, 11, 12, 14, 15, 18],
     'ALIMENTOS COCINA':  [6, 12, 14, 15, 17],
     'AMA DE LLAVES':     [6, 7, 8, 12, 14],
     'SPA':               [6, 9, 10],
