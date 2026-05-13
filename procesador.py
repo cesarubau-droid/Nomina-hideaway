@@ -1,4 +1,4 @@
-pandas as pd
+import pandas as pd
 from datetime import datetime, timedelta
 
 from calculador_base import t2m, empty
