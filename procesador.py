@@ -337,10 +337,25 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 continue
 
             # ── RESTO DE DEPARTAMENTOS ────────────────────────────
-            # Procesar pares Check In → Check Out
-            # Un empleado normalmente tiene un solo par por día
-            # excepto casos especiales (doble turno, nocturno cruzado)
+            # Detección universal de turno quebrado:
+            # Si hay Break Out y Break In → tratar como quebrado
+            # independientemente del departamento
+            break_outs = [t for t, s in day_punches if s == 'Break Out']
+            break_ins  = [t for t, s in day_punches if s == 'Break In']
 
+            if break_outs and break_ins and check_ins and check_outs:
+                # Turno quebrado excepcional fuera de SPLIT_DEPTS
+                res = calcular_resultado(
+                    dept, fecha_str, check_ins, todos,
+                    tipo, is_conf
+                )
+                records.append(make_record(
+                    eid, first, last, dept, tipo, fecha_str,
+                    check_ins[0], check_outs[-1], res
+                ))
+                continue
+
+            # Procesar pares Check In → Check Out normales
             salidas_usadas = set()
             turnos_dia     = []
 
