@@ -66,7 +66,11 @@ def _detect_split(punch_mins: list) -> tuple:
     """
     n = len(punch_mins)
     if n == 4:
-        return True, 1
+        # Solo es quebrado si el gap en el split (entre idx 1 y 2) es >= 3h30min
+        gap_split = punch_mins[2] - punch_mins[1]
+        if gap_split >= 210:
+            return True, 1
+        # Gap menor a 3h30min → break cortísimo, tratar como turno normal
     if n == 3:
         gaps = [punch_mins[i+1] - punch_mins[i] for i in range(n-1)]
         max_idx = gaps.index(max(gaps))
