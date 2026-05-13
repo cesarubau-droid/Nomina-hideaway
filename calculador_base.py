@@ -1,8 +1,3 @@
-# ============================================================
-# CALCULADOR BASE — Funciones compartidas
-# Hotel Rio Celeste Hideaway — Nómina v4.0
-# ============================================================
-
 from config import (
     EXTRA_HALF_MIN, EXTRA_FULL_MIN, TOLERANCE_MIN, LATE_PENALTY,
     DUPLICATE_MIN, ORD_HOURS_DEFAULT, ORD_HOURS_COMPENSADO, FERIADOS
@@ -31,7 +26,9 @@ def split_hours(start_m: int, end_m: int) -> tuple:
     Divide un bloque de tiempo en horas diurnas, mixtas y nocturnas.
     Diurna: 05:00-19:30 | Mixta: 19:30-22:30 | Nocturna: 22:30-05:00
     """
-    if end_m <= start_m:
+    if end_m == start_m:
+        return 0.0, 0.0, 0.0
+    if end_m < start_m:
         end_m += 24 * 60
     while start_m >= 1440:
         start_m -= 1440
