@@ -345,9 +345,14 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
 
             if break_outs and break_ins and check_ins and check_outs:
                 # Turno quebrado excepcional fuera de SPLIT_DEPTS
-                res = calcular_resultado(
-                    dept, fecha_str, check_ins, todos,
-                    tipo, is_conf
+                # punches_check = Check In + Check Out para que el calculador
+                # tenga entrada y salida; todos = todas las marcas para detect_split
+                punches_quebrado = sorted(check_ins + check_outs + 
+                    [t for t, s in day_punches if s in ('Break Out', 'Break In')],
+                    key=lambda x: t2m(x))
+                res = quebrado.calcular(
+                    fecha_str, punches_quebrado, dept,
+                    es_confianza=is_conf
                 )
                 records.append(make_record(
                     eid, first, last, dept, tipo, fecha_str,
