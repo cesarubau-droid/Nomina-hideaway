@@ -1,15 +1,15 @@
-import pandas as pd
+ pandas as pd
 from datetime import datetime, timedelta
- 
+
 from calculador_base import t2m, empty
 from calculadores import seguridad, recepcion, quebrado, estandar, compensado
 from generador_excel import generar_excel
 from config import (
     FERIADOS, COMPENSADO_DEPTS, CONFIANZA_NOMBRES, SPLIT_DEPTS
 )
- 
+
 # ── MAPAS ────────────────────────────────────────────────────
- 
+
 DEPT_MAP = {
     'SEGURIDAD':     'SEGURIDAD',
     'ALIMENTOS':     'ALIMENTOS COCINA',
@@ -20,7 +20,7 @@ DEPT_MAP = {
     'JARDIN':        'JARDIN',
     'MANTENIMIENTO': 'MANTENIMIENTO',
 }
- 
+
 EMP_MAP = {
     2:   ('RH',                False),
     22:  ('SOSTENIBILIDAD',    False),
@@ -41,43 +41,43 @@ EMP_MAP = {
     34:  ('RESTAURANTE SALON', True),
     36:  ('RESTAURANTE SALON', True),
 }
- 
+
 # Empleados excluidos de la nómina (outsourcing u otros)
 EXCLUIDOS = {1}  # Joseph Arroyo — outsourcing
- 
+
 # Punch states
 CHECK_IN_STATES  = {'Check In', 'Overtime In'}
 CHECK_OUT_STATES = {'Check Out', 'Overtime Out'}
 # Break In/Out solo se usan para quebrados — se pasan como punches crudos
- 
+
 # ── HELPERS ──────────────────────────────────────────────────
- 
+
 def normalizar_dept(biotime_dept, eid):
     d = str(biotime_dept).strip().upper()
     if d in DEPT_MAP: return DEPT_MAP[d]
     if eid in EMP_MAP: return EMP_MAP[eid][0]
     return None
- 
- 
+
+
 def get_tipo(eid, biotime_dept, tipo_excel):
     dept = normalizar_dept(biotime_dept, eid)
     if dept in COMPENSADO_DEPTS: return 'Compensado'
     if eid in EMP_MAP and EMP_MAP[eid][1]: return 'Por Horas'
     return tipo_excel
- 
- 
+
+
 def es_confianza(first, last, tipo_excel):
     if tipo_excel == 'Confianza': return True
     nombre = f"{first} {last}".strip().lower()
     return any(c in nombre for c in CONFIANZA_NOMBRES)
- 
- 
+
+
 def cargar_empleados(emp_path):
     df = pd.read_excel(emp_path)
     df['Employee_ID'] = df['Employee_ID'].astype(int)
     return dict(zip(df['Employee_ID'], df['Tipo']))
- 
- 
+
+
 def leer_biotime(biotime_path):
     df = pd.read_excel(biotime_path, header=None, skiprows=1)
     df.columns = [
@@ -90,12 +90,14 @@ def leer_biotime(biotime_path):
     df = df.dropna(subset=['Time'])
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df = df.dropna(subset=['Date'])
-    df['Time'] = df['Time'].apply(lambda x: str(x)[:5] if x else None)
+    df['Time'] = df['Time'].apply(lambda x: str(x)[:5] if pd.notna(x) and x != '' else None)
+    df['Time_sort'] = pd.to_numeric(df['Time'].apply(lambda x: int(x[:2])*60+int(x[3:5]) if x and len(x) >= 5 else 0), errors='coerce').fillna(0)
     df['Employee_ID'] = pd.to_numeric(df['Employee_ID'], errors='coerce')
-    df = df.sort_values(['Employee_ID', 'Date', 'Time']).reset_index(drop=True)
+    df = df.sort_values(['Employee_ID', 'Date', 'Time_sort']).reset_index(drop=True)
+    df = df.drop(columns=['Time_sort'])
     return df
- 
- 
+
+
 def make_record(eid, first, last, dept, tipo, fecha_str,
                 entry_raw, exit_raw, resultado):
     return {
@@ -119,8 +121,8 @@ def make_record(eid, first, last, dept, tipo, fecha_str,
         'Estado':          resultado['status'],
         'Notas':           resultado['nota'],
     }
- 
- 
+
+
 def make_libre(eid, first, last, dept, tipo, fecha_str):
     fer = FERIADOS.get(fecha_str, '')
     return {
@@ -134,15 +136,15 @@ def make_libre(eid, first, last, dept, tipo, fecha_str):
         'Estado': 'Libre',
         'Notas': f'★ Feriado: {fer}' if fer else 'Día libre',
     }
- 
- 
+
+
 # ── ENRUTADOR ────────────────────────────────────────────────
- 
+
 def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
                        tipo, is_conf, es_nocturno=False, exit_str=None):
     """
     Llama al calculador correcto según el departamento.
- 
+
     punches_check: solo Check In / Check Out (para depts normales)
     punches_todos: todas las marcas ordenadas (para quebrados)
     """
@@ -152,44 +154,44 @@ def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
             es_nocturno=es_nocturno, exit_str=exit_str,
             es_confianza=is_conf
         )
- 
+
     if dept == 'RECEPCION':
         return recepcion.calcular(
             fecha_str, punches_check,
             es_nocturno=es_nocturno, exit_str=exit_str,
             es_confianza=is_conf
         )
- 
+
     if dept in SPLIT_DEPTS:
         return quebrado.calcular(
             fecha_str, punches_todos, dept,
             es_confianza=is_conf
         )
- 
+
     if dept in COMPENSADO_DEPTS:
         return compensado.calcular(fecha_str, punches_check, dept)
- 
+
     # Estándar: Ama de Llaves, Spa, Jardín, Mantenimiento, RH, Proveeduría
     return estandar.calcular(
         fecha_str, punches_check, dept,
         es_nocturno=es_nocturno, exit_str=exit_str,
         es_confianza=is_conf
     )
- 
- 
+
+
 # ── PROCESADOR PRINCIPAL ─────────────────────────────────────
- 
+
 def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
     df        = leer_biotime(biotime_path)
     emp_tipos = cargar_empleados(emp_path)
- 
+
     fi_date = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
     ff_date = datetime.strptime(fecha_fin,    '%Y-%m-%d').date()
- 
+
     # Construir estructura de punches por (eid, date)
     emp_info = {}
     punches_map = {}  # (eid, date) → lista de (time, state)
- 
+
     for _, row in df.iterrows():
         eid = row['Employee_ID']
         if pd.isna(eid): continue
@@ -199,28 +201,28 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
         time  = row['Time']
         state = str(row['Punch_State']).strip()
         bdept = str(row['Department'])
- 
+
         if eid not in emp_info:
             emp_info[eid] = {
                 'first': str(row['First_Name']),
                 'last':  str(row['Last_Name']),
                 'bdept': bdept,
             }
- 
+
         key = (eid, date)
         punches_map.setdefault(key, [])
         punches_map[key].append((time, state))
- 
+
     # Generar lista de fechas del período
     all_dates = []
     d = fi_date
     while d <= ff_date:
         all_dates.append(d)
         d += timedelta(days=1)
- 
+
     emp_set = set(eid for (eid, dt) in punches_map if fi_date <= dt <= ff_date)
     records = []
- 
+
     for eid in sorted(emp_set):
         if eid not in emp_info: continue
         info  = emp_info[eid]
@@ -229,21 +231,21 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
         bdept = info['bdept']
         dept  = normalizar_dept(bdept, eid)
         if not dept: continue
- 
+
         tipo_excel = emp_tipos.get(eid, 'Fijo')
         tipo       = get_tipo(eid, bdept, tipo_excel)
         is_conf    = es_confianza(first, last, tipo_excel)
         if is_conf: tipo = 'Confianza'
- 
+
         for d in all_dates:
             fecha_str   = d.strftime('%Y-%m-%d')
             day_punches = punches_map.get((eid, d), [])
- 
+
             # ── SIN MARCACIONES → LIBRE ───────────────────────────
             if not day_punches:
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
- 
+
             # ── SEPARAR TIPOS DE PUNCH ────────────────────────────
             check_ins  = sorted(
                 [t for t, s in day_punches if s in CHECK_IN_STATES],
@@ -258,18 +260,18 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 [t for t, s in day_punches],
                 key=lambda x: t2m(x)
             )
- 
+
             # ── SOLO SALIDAS SIN ENTRADA → LIBRE ─────────────────
             # Son salidas del turno nocturno del día anterior
             if not check_ins and check_outs:
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
- 
+
             # ── SIN CHECK IN NI CHECK OUT ─────────────────────────
             if not check_ins and not check_outs:
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
- 
+
             # ── DEPARTAMENTOS QUEBRADOS ───────────────────────────
             # Pasan TODAS las marcas al calculador
             if dept in SPLIT_DEPTS:
@@ -309,20 +311,20 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                         check_ins[0], check_outs[-1], res
                     ))
                 continue
- 
+
             # ── RESTO DE DEPARTAMENTOS ────────────────────────────
             # Procesar pares Check In → Check Out
             # Un empleado normalmente tiene un solo par por día
             # excepto casos especiales (doble turno, nocturno cruzado)
- 
+
             salidas_usadas = set()
             turnos_dia     = []
- 
+
             for entry_t in check_ins:
                 entry_m   = t2m(entry_t)
                 best_exit = None
                 best_diff = 999999
- 
+
                 for i, exit_t in enumerate(check_outs):
                     if i in salidas_usadas: continue
                     exit_m = t2m(exit_t)
@@ -332,13 +334,13 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                     if 0 < diff < best_diff:
                         best_diff = diff
                         best_exit = (i, exit_t)
- 
+
                 if best_exit:
                     salidas_usadas.add(best_exit[0])
                     turnos_dia.append((entry_t, best_exit[1]))
                 else:
                     turnos_dia.append((entry_t, None))
- 
+
             for entry_t, exit_t in turnos_dia:
                 if exit_t is None:
                     # Buscar salida en el día siguiente
@@ -382,25 +384,25 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                         eid, first, last, dept, tipo,
                         fecha_str, entry_t, exit_t, res
                     ))
- 
+
     return pd.DataFrame(records)
- 
- 
+
+
 # ── MAIN ─────────────────────────────────────────────────────
- 
+
 if __name__ == '__main__':
     import sys
- 
+
     biotime = sys.argv[1] if len(sys.argv) > 1 else 'biotime.xlsx'
     emp     = sys.argv[2] if len(sys.argv) > 2 else 'empleados.xlsx'
     fi      = sys.argv[3] if len(sys.argv) > 3 else '2026-04-10'
     ff      = sys.argv[4] if len(sys.argv) > 4 else '2026-04-24'
- 
+
     print(f"Procesando {biotime} del {fi} al {ff}...")
     df_result = procesar(biotime, emp, fi, ff)
- 
+
     print(f"Total registros : {len(df_result)}")
     print(f"Empleados       : {df_result['ID'].nunique()}")
- 
+
     generar_excel(df_result, 'output_nomina.xlsx')
     print("Reporte guardado en output_nomina.xlsx")
