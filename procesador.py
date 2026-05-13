@@ -1,3 +1,8 @@
+# ============================================================
+# PROCESADOR v4.0 — Arquitectura por departamento
+# Hotel Rio Celeste Hideaway
+# ============================================================
+
 import pandas as pd
 from datetime import datetime, timedelta
 
@@ -91,11 +96,30 @@ def leer_biotime(biotime_path):
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df = df.dropna(subset=['Date'])
     df['Time'] = df['Time'].apply(lambda x: str(x)[:5] if pd.notna(x) and x != '' else None)
-    df['Time_sort'] = pd.to_numeric(df['Time'].apply(lambda x: int(x[:2])*60+int(x[3:5]) if x and len(x) >= 5 else 0), errors='coerce').fillna(0)
+    df['Time_sort'] = pd.to_numeric(df['Time'].apply(
+        lambda x: int(x[:2])*60+int(x[3:5]) if x and len(x) >= 5 else 0
+    ), errors='coerce').fillna(0)
     df['Employee_ID'] = pd.to_numeric(df['Employee_ID'], errors='coerce')
+
+    # Inferir Employee_ID por nombre cuando está vacío (filas agregadas manualmente por Andry)
+    nombre_a_eid = {}
+    for _, r in df[df['Employee_ID'].notna()].iterrows():
+        nombre = str(r['First_Name']).strip()
+        if nombre not in nombre_a_eid:
+            nombre_a_eid[nombre] = int(r['Employee_ID'])
+
+    def inferir_eid(row):
+        if pd.notna(row['Employee_ID']):
+            return row['Employee_ID']
+        nombre = str(row['First_Name']).strip()
+        return nombre_a_eid.get(nombre, float('nan'))
+
+    df['Employee_ID'] = df.apply(inferir_eid, axis=1)
+
     df = df.sort_values(['Employee_ID', 'Date', 'Time_sort']).reset_index(drop=True)
     df = df.drop(columns=['Time_sort'])
     return df
+
 
 
 def make_record(eid, first, last, dept, tipo, fecha_str,
