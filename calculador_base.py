@@ -1,3 +1,8 @@
+# ============================================================
+# CALCULADOR BASE — Funciones compartidas
+# Hotel Rio Celeste Hideaway — Nómina v4.0
+# ============================================================
+
 from config import (
     EXTRA_HALF_MIN, EXTRA_FULL_MIN, TOLERANCE_MIN, LATE_PENALTY,
     DUPLICATE_MIN, ORD_HOURS_DEFAULT, ORD_HOURS_COMPENSADO, FERIADOS
@@ -118,3 +123,25 @@ def empty(status, nota='', entry_red='', exit_red=''):
 
 def es_feriado(fecha: str) -> tuple:
     return fecha in FERIADOS, FERIADOS.get(fecha, '')
+
+
+def calc_early(early_min: int) -> float:
+    """
+    Calcula horas extra por llegada anticipada.
+    Umbral: 25min antes del turno.
+    - Menos de 25min → 0h extra
+    - Entre 25 y 44min → 0.5h extra
+    - 45min o más → escala igual que regla 20/45
+    Siempre son horas diurnas.
+    """
+    if early_min < 25:
+        return 0.0
+    elif early_min < 45:
+        return 0.5
+    else:
+        full = early_min // 60
+        rem  = early_min % 60
+        if rem < 25:   er = 0.0
+        elif rem < 45: er = 0.5
+        else:          er = 1.0
+        return float(full) + er
