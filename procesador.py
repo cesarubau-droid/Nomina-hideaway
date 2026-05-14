@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 from calculador_base import t2m, empty
-from calculadores import seguridad, recepcion, quebrado, estandar, compensado
+from calculadores import seguridad, recepcion, quebrado, estandar, compensado, ama_de_llaves
 from generador_excel import generar_excel
 from config import (
     FERIADOS, COMPENSADO_DEPTS, CONFIANZA_NOMBRES, SPLIT_DEPTS
@@ -195,7 +195,13 @@ def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
     if dept in COMPENSADO_DEPTS:
         return compensado.calcular(fecha_str, punches_check, dept)
 
-    # Estándar: Ama de Llaves, Spa, Jardín, Mantenimiento, RH, Proveeduría
+    if dept == 'AMA DE LLAVES':
+        return ama_de_llaves.calcular(
+            fecha_str, punches_check,
+            es_nocturno=es_nocturno, exit_str=exit_str
+        )
+
+    # Estándar: Spa, Jardín, Mantenimiento, RH, Proveeduría
     return estandar.calcular(
         fecha_str, punches_check, dept,
         es_nocturno=es_nocturno, exit_str=exit_str,
@@ -345,15 +351,16 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
 
             if break_outs and break_ins and check_ins and check_outs:
                 # Turno quebrado excepcional fuera de SPLIT_DEPTS
-                # punches_check = Check In + Check Out para que el calculador
-                # tenga entrada y salida; todos = todas las marcas para detect_split
-                punches_quebrado = sorted(check_ins + check_outs + 
+                punches_quebrado = sorted(check_ins + check_outs +
                     [t for t, s in day_punches if s in ('Break Out', 'Break In')],
                     key=lambda x: t2m(x))
-                res = quebrado.calcular(
-                    fecha_str, punches_quebrado, dept,
-                    es_confianza=is_conf
-                )
+                if dept == 'AMA DE LLAVES':
+                    res = ama_de_llaves.calcular(fecha_str, punches_quebrado)
+                else:
+                    res = quebrado.calcular(
+                        fecha_str, punches_quebrado, dept,
+                        es_confianza=is_conf
+                    )
                 records.append(make_record(
                     eid, first, last, dept, tipo, fecha_str,
                     check_ins[0], check_outs[-1], res
