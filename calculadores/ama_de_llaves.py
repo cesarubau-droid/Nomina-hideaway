@@ -10,7 +10,8 @@
 
 from calculador_base import (
     t2m, m2t, r2, split_hours, nearest_shift,
-    round_exit, calc_extra, calc_early, clean_punches, empty, es_feriado
+    round_exit, calc_extra, calc_early, clean_punches, empty, es_feriado,
+    aplicar_feriado
 )
 from config import (
     DEPT_STARTS, TOLERANCE_MIN, LATE_PENALTY, EXTRA_HALF_MIN, SPLIT_GAP_MIN
@@ -43,30 +44,41 @@ TURNO_FIN = {
 
 def detect_turno(entry_m: int, exit_m: int) -> tuple:
     """
-    Detecta el turno correcto usando la hora de salida como referencia.
-    Compara exit_m con el fin programado de cada turno.
+    Detecta el turno:
+    1. Si la entrada está dentro de tolerancia de un turno → ese turno
+    2. Si llegó antes del primer turno → primer turno (anticipada)
+    3. Si no → primer turno >= entrada
     Retorna (turno_inicio_minutos, early_min, late_min).
-    - early_min > 0: llegó anticipado
-    - late_min > 0:  llegó tarde
     """
-    if exit_m <= entry_m:
-        exit_m += 24 * 60
+    from config import TOLERANCE_MIN
+    starts_sorted = sorted(TURNO_FIN.keys())
 
-    best_turno = None
-    best_diff  = 999999
+    # 1. Verificar si está dentro de tolerancia de algún turno
+    for h in starts_sorted:
+        turno_m = h * 60
+        diff    = entry_m - turno_m  # positivo = llegó tarde
+        if 0 <= diff <= TOLERANCE_MIN:
+            return turno_m, 0, diff
 
-    for h, fin_m in TURNO_FIN.items():
-        # Ajustar si la salida cruza medianoche
-        fin_adj = fin_m if fin_m >= entry_m else fin_m + 24 * 60
-        diff = abs(exit_m - fin_adj)
-        if diff < best_diff:
-            best_diff  = diff
-            best_turno = h
+    # 2. Si llegó antes del primer turno → anticipada al primer turno
+    primer_turno_m = starts_sorted[0] * 60
+    if entry_m < primer_turno_m:
+        early_min = primer_turno_m - entry_m
+        return primer_turno_m, early_min, 0
 
-    re_m      = best_turno * 60
-    early_min = max(0, re_m - entry_m)   # llegó antes del turno
-    late_min  = max(0, entry_m - re_m)   # llegó después del turno
-    return re_m, early_min, late_min
+    # 3. Primer turno >= entrada (llegó tarde o entre turnos)
+    turno_h = None
+    for h in starts_sorted:
+        if h * 60 >= entry_m:
+            turno_h = h
+            break
+
+    if turno_h is None:
+        turno_h = starts_sorted[-1]
+
+    re_m     = turno_h * 60
+    late_min = max(0, entry_m - re_m)
+    return re_m, 0, late_min
 
 
 def calcular(fecha: str, punches_raw: list,
@@ -102,11 +114,12 @@ def calcular(fecha: str, punches_raw: list,
         re_m, _, _ = detect_turno(entry_m, exit_m)
         turno_h    = re_m // 60
         ord_h      = ORD_HORAS.get(turno_h, 8)
-        return _calcular_turno(
+        res = _calcular_turno(
             re_m, re_m, exit_m, ord_h, nota_fer,
             is_late=False, entry_str=entry_str,
             early_min=0
         )
+        return aplicar_feriado(res, fecha)
 
     if len(punches) < 2:
         return empty('Sin salida — Andry ajusta',
@@ -118,7 +131,7 @@ def calcular(fecha: str, punches_raw: list,
     is_split, split_idx = _detect_split(punch_mins)
 
     if is_split:
-        return _calcular_quebrado(punches, punch_mins, split_idx, nota_fer)
+        return _calcular_quebrado(punches, punch_mins, split_idx, nota_fer, fecha)
 
     # ── TURNO NORMAL ─────────────────────────────────────────
     exit_m              = t2m(punches[-1])
@@ -131,11 +144,12 @@ def calcular(fecha: str, punches_raw: list,
     if exit_m <= entry_count:
         exit_m += 24 * 60
 
-    return _calcular_turno(
+    res = _calcular_turno(
         re_m, entry_count, exit_m, ord_h, nota_fer,
         is_late, entry_str,
         early_min=early_min
     )
+    return aplicar_feriado(res, fecha)
 
 
 def _detect_split(punch_mins: list) -> tuple:
@@ -158,7 +172,7 @@ def _detect_split(punch_mins: list) -> tuple:
     return False, None
 
 
-def _calcular_quebrado(punches, punch_mins, split_idx, nota_fer) -> dict:
+def _calcular_quebrado(punches, punch_mins, split_idx, nota_fer, fecha='') -> dict:
     """Calcula turno quebrado B1 + B2."""
 
     b1_mins = punch_mins[:split_idx + 1]
@@ -228,7 +242,7 @@ def _calcular_quebrado(punches, punch_mins, split_idx, nota_fer) -> dict:
     if is_late and not nota_fer:
         nota = 'Tardío B1. ' + nota
 
-    return {
+    res = {
         'diu_o': diu_o, 'mix_o': mix_o, 'noc_o': noc_o,
         'xd': r2(xd), 'xm': r2(xm), 'xn': r2(xn),
         'status': 'Quebrado' + (' +Extra' if xd + xm + xn > 0 else ''),
@@ -236,6 +250,7 @@ def _calcular_quebrado(punches, punch_mins, split_idx, nota_fer) -> dict:
         'entry_red': f'{m2t(entry1_count)}/{m2t(re2)}',
         'exit_red':  f'{m2t(exit1_r % 1440)}/{m2t(exit2_r % 1440)}',
     }
+    return aplicar_feriado(res, fecha)
 
 
 def _calcular_turno(re_m: int, entry_count: int, exit_m: int,
