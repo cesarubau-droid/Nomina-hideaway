@@ -71,20 +71,42 @@ def nearest_shift(entry_m: int, starts: list) -> tuple:
 
 
 def round_exit(exit_m: int, sched_end: int) -> int:
-    """Redondea la salida real con regla 20/45 relativa al fin del turno."""
-    if exit_m <= sched_end:
-        return sched_end
-    over = exit_m - sched_end
-    if over > 12 * 60:
-        over = 0
-    full = over // 60
-    rem  = over % 60
-    if rem < EXTRA_HALF_MIN:
-        return sched_end + full * 60
-    elif rem < EXTRA_FULL_MIN:
-        return sched_end + full * 60 + 30
+    """
+    Redondea la salida real con regla 20/45 relativa al fin del turno.
+    - Salida tardía: regla 20/45 hacia adelante
+    - Salida anticipada: regla 20/45 hacia atrás (descuenta)
+    - Menos de 20min de diferencia en cualquier dirección → fin programado
+    """
+    diff = exit_m - sched_end
+
+    # Salida tardía
+    if diff > 0:
+        if diff > 12 * 60:
+            diff = 0
+        full = diff // 60
+        rem  = diff % 60
+        if rem < EXTRA_HALF_MIN:
+            return sched_end + full * 60
+        elif rem < EXTRA_FULL_MIN:
+            return sched_end + full * 60 + 30
+        else:
+            return sched_end + (full + 1) * 60
+
+    # Salida anticipada
+    early = sched_end - exit_m  # minutos antes del fin
+    if early < EXTRA_HALF_MIN:
+        return sched_end          # menos de 20min → fin programado
+    elif early < EXTRA_FULL_MIN:
+        return sched_end - 30     # entre 20 y 44min → descuenta 30min
     else:
-        return sched_end + (full + 1) * 60
+        full  = early // 60
+        rem   = early % 60
+        if rem < EXTRA_HALF_MIN:
+            return sched_end - full * 60
+        elif rem < EXTRA_FULL_MIN:
+            return sched_end - full * 60 - 30
+        else:
+            return sched_end - (full + 1) * 60
 
 
 def calc_extra(over_min: int) -> float:
