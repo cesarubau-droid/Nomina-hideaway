@@ -237,6 +237,14 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
         date  = row['Date'].date()
         time  = row['Time']
         state = str(row['Punch_State']).strip()
+        # Normalizar variantes de Punch_State escritas por Andry manualmente
+        state_map = {
+            'check in':   'Check In',
+            'check out':  'Check Out',
+            'break in':   'Break In',
+            'break out':  'Break Out',
+        }
+        state = state_map.get(state.lower(), state)
         bdept = str(row['Department'])
 
         if eid not in emp_info:
