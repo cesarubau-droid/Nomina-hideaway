@@ -53,12 +53,15 @@ def detect_turno(entry_m: int, exit_m: int) -> tuple:
     from config import TOLERANCE_MIN
     starts_sorted = sorted(TURNO_FIN.keys())
 
-    # 1. Verificar si está dentro de tolerancia de algún turno
+    # 1. Dentro de tolerancia de algún turno (antes o después)
     for h in starts_sorted:
         turno_m = h * 60
-        diff    = entry_m - turno_m  # positivo = llegó tarde
-        if 0 <= diff <= TOLERANCE_MIN:
-            return turno_m, 0, diff
+        diff    = entry_m - turno_m  # positivo=tarde, negativo=anticipado
+        if -TOLERANCE_MIN <= diff <= TOLERANCE_MIN:
+            if diff <= 0:
+                return turno_m, 0, 0   # anticipado dentro de tolerancia
+            else:
+                return turno_m, 0, diff  # tardío dentro de tolerancia
 
     # 2. Si llegó antes del primer turno → anticipada al primer turno
     primer_turno_m = starts_sorted[0] * 60
