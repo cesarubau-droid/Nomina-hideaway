@@ -27,11 +27,14 @@ FERIADOS = {
     '2026-04-02': 'Jueves Santo',
     '2026-04-03': 'Viernes Santo',
     '2026-04-11': 'Juan Santamaría',
+    '2026-04-17': 'Jueves Santo',
+    '2026-04-18': 'Viernes Santo',
     '2026-05-01': 'Día del Trabajador',
     '2026-07-25': 'Anexión Guanacaste',
     '2026-08-02': 'Virgen de los Ángeles',
     '2026-08-15': 'Día de la Madre',
     '2026-09-15': 'Independencia',
+    '2026-10-12': 'Día de las Culturas',
     '2026-12-25': 'Navidad',
 }
 
