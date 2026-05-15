@@ -145,3 +145,23 @@ def calc_early(early_min: int) -> float:
         elif rem < 45: er = 0.5
         else:          er = 1.0
         return float(full) + er
+
+
+def aplicar_feriado(resultado: dict, fecha: str) -> dict:
+    """
+    Si el día es feriado, duplica todas las horas (ordinarias y extras).
+    Se aplica al resultado final de cualquier calculador.
+    """
+    is_fer, fer_name = es_feriado(fecha)
+    if not is_fer:
+        return resultado
+
+    r = resultado.copy()
+    r['diu_o'] = r2(r['diu_o'] * 2)
+    r['mix_o'] = r2(r['mix_o'] * 2)
+    r['noc_o'] = r2(r['noc_o'] * 2)
+    r['xd']    = r2(r['xd']    * 2)
+    r['xm']    = r2(r['xm']    * 2)
+    r['xn']    = r2(r['xn']    * 2)
+    r['nota']  = f'★ Feriado: {fer_name} — horas duplicadas'
+    return r
