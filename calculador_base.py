@@ -94,14 +94,14 @@ def round_exit(exit_m: int, sched_end: int) -> int:
 
     # Salida anticipada
     early = sched_end - exit_m  # minutos antes del fin
-    if early < EXTRA_HALF_MIN:
-        return sched_end          # menos de 20min → fin programado
+    if early < 15:
+        return sched_end          # menos de 15min → fin programado
     elif early < EXTRA_FULL_MIN:
-        return sched_end - 30     # entre 20 y 44min → descuenta 30min
+        return sched_end - 30     # entre 15 y 44min → descuenta 30min
     else:
         full  = early // 60
         rem   = early % 60
-        if rem < EXTRA_HALF_MIN:
+        if rem < 15:
             return sched_end - full * 60
         elif rem < EXTRA_FULL_MIN:
             return sched_end - full * 60 - 30
