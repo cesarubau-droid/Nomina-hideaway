@@ -21,6 +21,7 @@ from config import TOLERANCE_MIN, EXTRA_HALF_MIN
 # Turnos: inicio → (fin, ord_h)
 TURNOS = {
     7:  (15 * 60, 8),   # 07:00 → 15:00
+    8:  (16 * 60, 8),   # 08:00 → 16:00
     10: (18 * 60, 8),   # 10:00 → 18:00
 }
 
@@ -88,7 +89,9 @@ def calcular(fecha: str, punches_raw: list) -> dict:
     if exit_rounded <= entry_count:
         exit_rounded += 24 * 60
 
-    d_o, mx_o, n_o = split_hours(entry_count, entry_count + ord_h * 60)
+    total_min  = exit_rounded - entry_count
+    actual_ord = min(total_min, ord_h * 60)
+    d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
     over_min = max(0, exit_rounded - sched_end)
 
     xd = xm = xn = 0.0
