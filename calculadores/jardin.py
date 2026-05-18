@@ -25,7 +25,17 @@ TURNO_FIN = {
     6:  14 * 60,   # 06:00 → 14:00
     7:  15 * 60,   # 07:00 → 15:00
     8:  16 * 60,   # 08:00 → 16:00
-    22: 30 * 60,   # 22:00 → 06:00 (siguiente día = 30*60 en minutos)
+    15: 22 * 60,   # 15:00 → 22:00 (7h, turno especial)
+    22: 30 * 60,   # 22:00 → 06:00 (siguiente día)
+}
+
+# Horas ordinarias por turno
+TURNO_ORD = {
+    6:  8,
+    7:  8,
+    8:  8,
+    15: 7,
+    22: 6,  # nocturno
 }
 
 # Turno nocturno: 22:00-06:00
@@ -33,7 +43,7 @@ NOCTURNO_START = 22 * 60   # 22:00
 NOCTURNO_ORD_H = 6         # 6h ordinarias
 NOCTURNO_XN    = 2.0       # 2h extra nocturna fija
 
-STARTS_SORTED = sorted(TURNO_FIN.keys())
+STARTS_SORTED = sorted(h for h in TURNO_FIN.keys() if h != 22)  # excluye nocturno
 
 
 def detect_turno(entry_m: int, exit_m: int) -> tuple:
@@ -128,6 +138,7 @@ def calcular(fecha: str, punches_raw: list) -> dict:
 
     turno_h, early_min, late_min = detect_turno(entry_m, exit_m)
     sched_end = TURNO_FIN.get(turno_h, 16 * 60)
+    ord_h     = TURNO_ORD.get(turno_h, ORD_H)
 
     is_late     = late_min > TOLERANCE_MIN
     entry_count = turno_h * 60 + LATE_PENALTY if is_late else turno_h * 60
@@ -139,10 +150,11 @@ def calcular(fecha: str, punches_raw: list) -> dict:
     if exit_rounded <= entry_count:
         exit_rounded += 24 * 60
 
-    actual_ord = ORD_H * 60
+    actual_ord = ord_h * 60
     d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
 
     over_min = max(0, exit_rounded - sched_end)
+
 
     xd = xm = xn = 0.0
 
@@ -207,6 +219,7 @@ def _calcular_nocturno(fecha: str, entry_m: int, exit_m: int,
 
     # Extra adicional por salida tardía
     over_min = max(0, exit_rounded - sched_end)
+
     if over_min >= EXTRA_HALF_MIN:
         xh = calc_extra(over_min)
         if xh > 0:
