@@ -1,22 +1,73 @@
 # ============================================================
 # CALCULADOR RECEPCIÓN — v4.0
-# Reglas:
-#   Turno 22h (nocturno): 6h ord + 2h extra noc fija
-#   Resto de turnos: 8h ord + regla 20/45
-#   Confianza: nunca extras
+# Turnos:
+#   06:00-15:00 → 8h ordinarias
+#   08:00-16:00 → 8h ordinarias
+#   09:00-17:00 → 8h ordinarias
+#   15:00-22:00 → 7h ordinarias
+#   22:00-06:00 → 6h ordinarias + 2h extra noc fija
+# Regla 20/45 para extras adicionales
+# Llegada anticipada: 25min → 0.5h extra diurna
+# Tolerancia: 10min | Siguiente turno si supera tolerancia
+# Sin quebrados
+# Confianza: Tania Rodriguez (ID 25) — nunca extras
+# Feriados: todas las horas se duplican
 # ============================================================
 
 from calculador_base import (
-    t2m, m2t, r2, split_hours, nearest_shift,
-    round_exit, calc_extra, clean_punches, empty, es_feriado
+    t2m, m2t, r2, split_hours,
+    round_exit, calc_extra, calc_early, clean_punches,
+    empty, es_feriado, aplicar_feriado
 )
-from config import (
-    DEPT_STARTS, REC_NOCTURNO_START, TOLERANCE_MIN,
-    LATE_PENALTY, ORD_HOURS_DEFAULT, EXTRA_HALF_MIN
-)
+from config import TOLERANCE_MIN, LATE_PENALTY, EXTRA_HALF_MIN
 
-DEPT   = 'RECEPCION'
-STARTS = DEPT_STARTS[DEPT]
+# Turnos: inicio → (fin, ord_h)
+TURNOS = {
+    6:  (15 * 60, 8),   # 06:00 → 15:00
+    8:  (16 * 60, 8),   # 08:00 → 16:00
+    9:  (17 * 60, 8),   # 09:00 → 17:00
+    15: (22 * 60, 7),   # 15:00 → 22:00
+}
+
+# Turno nocturno
+NOCTURNO_START = 22 * 60   # 22:00
+NOCTURNO_ORD_H = 6
+NOCTURNO_XN    = 2.0
+NOCTURNO_END   = 30 * 60   # 06:00 siguiente día
+
+STARTS_SORTED = sorted(TURNOS.keys())
+
+# Empleados de confianza (sin extras)
+CONFIANZA_IDS = {25}  # Tania Rodriguez
+
+
+def detect_turno(entry_m: int) -> tuple:
+    """
+    Detecta el turno:
+    1. Dentro de tolerancia (+-10min) → ese turno
+    2. Antes del primer turno → anticipada al primero
+    3. Superó tolerancia → primer turno >= entrada (siguiente turno)
+    Retorna (turno_h, early_min, late_min).
+    """
+    for h in STARTS_SORTED:
+        turno_m = h * 60
+        diff    = entry_m - turno_m
+        if -TOLERANCE_MIN <= diff <= TOLERANCE_MIN:
+            if diff <= 0:
+                return h, 0, 0
+            else:
+                return h, 0, diff
+
+    if entry_m < STARTS_SORTED[0] * 60:
+        early_min = STARTS_SORTED[0] * 60 - entry_m
+        return STARTS_SORTED[0], early_min, 0
+
+    for h in STARTS_SORTED:
+        if h * 60 >= entry_m:
+            return h, 0, 0
+
+    last_h = STARTS_SORTED[-1]
+    return last_h, 0, entry_m - last_h * 60
 
 
 def calcular(fecha: str, punches_raw: list,
@@ -24,13 +75,6 @@ def calcular(fecha: str, punches_raw: list,
              es_confianza: bool = False) -> dict:
     """
     Calcula horas para un empleado de Recepción.
-
-    Args:
-        fecha:        'YYYY-MM-DD'
-        punches_raw:  lista ['HH:MM', ...] — solo Check In / Check Out
-        es_nocturno:  True si el turno cruzó medianoche
-        exit_str:     hora de salida del día siguiente (solo si es_nocturno)
-        es_confianza: si es True, nunca se calculan extras
     """
     is_fer, fer_name = es_feriado(fecha)
     nota_fer = f'★ Feriado: {fer_name}' if is_fer else ''
@@ -38,91 +82,72 @@ def calcular(fecha: str, punches_raw: list,
     if not punches_raw:
         return empty('Libre', nota_fer if is_fer else 'Día libre')
 
+    # Nocturno desde procesador
+    if es_nocturno and exit_str:
+        entry_m = t2m(punches_raw[0]) if punches_raw else NOCTURNO_START
+        exit_m  = t2m(exit_str) + 24 * 60
+        res = _calcular_nocturno(fecha, entry_m, exit_m,
+                                 punches_raw[0] if punches_raw else m2t(NOCTURNO_START),
+                                 nota_fer, es_confianza)
+        return aplicar_feriado(res, fecha)
+
     punches = clean_punches(sorted(punches_raw, key=lambda x: t2m(x)))
 
     if len(punches) < 1:
         return empty('Libre', nota_fer if is_fer else 'Día libre')
 
+    # Detección nocturno interno
+    raw_mins = [t2m(p) for p in punches_raw if p]
+    has_noc_entry = any(m >= NOCTURNO_START - TOLERANCE_MIN for m in raw_mins)
+    has_early_exit = any(m <= 6 * 60 + 30 for m in raw_mins)
+
+    if has_noc_entry and has_early_exit:
+        entry_noc = max(m for m in raw_mins if m >= NOCTURNO_START - TOLERANCE_MIN)
+        exit_noc  = min(m for m in raw_mins if m <= 6 * 60 + 30)
+        res = _calcular_nocturno(fecha, entry_noc, exit_noc + 24 * 60,
+                                 m2t(entry_noc), nota_fer, es_confianza)
+        return aplicar_feriado(res, fecha)
+
     entry_str = punches[0]
     entry_m   = t2m(entry_str)
 
-    # Turno nocturno cruzado
-    if es_nocturno and exit_str:
-        exit_m  = t2m(exit_str)
-        if exit_m <= entry_m:
-            exit_m += 24 * 60
-        re_m, _ = nearest_shift(entry_m, STARTS)
-        turno_h  = re_m // 60
-
-        if turno_h == REC_NOCTURNO_START:
-            return _nocturno_especial(nota_fer)
-        else:
-            return _turno_normal(
-                re_m, re_m, exit_m, nota_fer,
-                es_confianza, is_late=False, entry_str=entry_str
-            )
-
-    # Turno normal (mismo día)
     if len(punches) < 2:
         return empty('Sin salida — Andry ajusta',
                      f'Entrada: {entry_str}',
                      entry_red=entry_str, exit_red='?')
 
-    exit_m       = t2m(punches[-1])
-    re_m, diff   = nearest_shift(entry_m, STARTS)
-    turno_h      = re_m // 60
-    is_late      = diff > TOLERANCE_MIN
-    entry_count  = re_m + LATE_PENALTY if is_late else re_m
+    exit_m = t2m(punches[-1])
+    turno_h, early_min, late_min = detect_turno(entry_m)
+    sched_end, ord_h = TURNOS.get(turno_h, (22 * 60, 7))
 
-    # Si la entrada redondeada es 22h → turno nocturno especial
-    if turno_h == REC_NOCTURNO_START:
-        return _nocturno_especial(nota_fer)
+    is_late     = late_min > TOLERANCE_MIN
+    entry_count = turno_h * 60 + LATE_PENALTY if is_late else turno_h * 60
 
     if exit_m <= entry_count:
         exit_m += 24 * 60
 
-    return _turno_normal(
-        re_m, entry_count, exit_m, nota_fer,
-        es_confianza, is_late, entry_str
-    )
-
-
-def _nocturno_especial(nota_fer: str) -> dict:
-    """6h ordinarias + 2h extra nocturna fija."""
-    re_m    = REC_NOCTURNO_START * 60
-    ord_end = re_m + 6 * 60
-    d_o, mx_o, n_o = split_hours(re_m, ord_end)
-    nota = nota_fer if nota_fer else '6h ord + 2h extra noc (Recepción nocturno)'
-    return {
-        'diu_o': d_o, 'mix_o': mx_o, 'noc_o': n_o,
-        'xd': 0, 'xm': 0, 'xn': 2.0,
-        'status': 'Nocturno Recepción', 'nota': nota,
-        'entry_red': '22:00', 'exit_red': '06:00',
-    }
-
-
-def _turno_normal(re_m: int, entry_count: int, exit_m: int,
-                  nota_fer: str, es_confianza: bool,
-                  is_late: bool, entry_str: str) -> dict:
-    """8h ordinarias + regla 20/45."""
-    ord_h        = ORD_HOURS_DEFAULT
-    sched_end    = entry_count + ord_h * 60
     exit_rounded = round_exit(exit_m, sched_end)
     if exit_rounded <= entry_count:
         exit_rounded += 24 * 60
 
-    total_min  = exit_rounded - entry_count
-    over_min   = total_min - ord_h * 60
-    actual_ord = min(total_min, ord_h * 60)
+    d_o, mx_o, n_o = split_hours(entry_count, entry_count + ord_h * 60)
 
-    d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
+    over_min = max(0, exit_rounded - sched_end)
 
-    xd = xm = xn = 0
-    if not es_confianza and over_min >= EXTRA_HALF_MIN:
-        xh = calc_extra(over_min)
-        if xh > 0:
-            xs = entry_count + ord_h * 60
-            xd, xm, xn = split_hours(xs, xs + int(xh * 60))
+    xd = xm = xn = 0.0
+
+    if not es_confianza:
+        if early_min > 0 and not is_late:
+            xd = r2(xd + calc_early(early_min))
+
+        if over_min >= EXTRA_HALF_MIN:
+            xh = calc_extra(over_min)
+            if xh > 0:
+                xs = sched_end
+                xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
+                xd = r2(xd + xd2)
+                xm = r2(xm + xm2)
+                xn = r2(xn + xn2)
 
     has_extra  = xd + xm + xn > 0
     late_label = 'Tardío' if is_late else 'OK'
@@ -135,10 +160,47 @@ def _turno_normal(re_m: int, entry_count: int, exit_m: int,
     else:
         nota = ''
 
-    return {
+    res = {
         'diu_o': r2(d_o), 'mix_o': r2(mx_o), 'noc_o': r2(n_o),
         'xd': r2(xd), 'xm': r2(xm), 'xn': r2(xn),
         'status': status, 'nota': nota,
         'entry_red': m2t(entry_count),
         'exit_red':  m2t(exit_rounded % 1440),
+    }
+    return aplicar_feriado(res, fecha)
+
+
+def _calcular_nocturno(fecha: str, entry_m: int, exit_m: int,
+                       entry_str: str, nota_fer: str,
+                       es_confianza: bool) -> dict:
+    """Turno nocturno 22:00-06:00: 6h ord + 2h extra noc fija."""
+    re_m    = NOCTURNO_START
+    ord_end = re_m + NOCTURNO_ORD_H * 60
+
+    d_o, mx_o, n_o = split_hours(re_m, ord_end)
+
+    xd = 0.0
+    xm = 0.0
+    xn = NOCTURNO_XN if not es_confianza else 0.0
+
+    over_min = max(0, exit_m - NOCTURNO_END)
+    if not es_confianza and over_min >= EXTRA_HALF_MIN:
+        xh = calc_extra(over_min)
+        if xh > 0:
+            xs = NOCTURNO_END
+            xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
+            xd = r2(xd + xd2)
+            xm = r2(xm + xm2)
+            xn = r2(xn + xn2)
+
+    nota = nota_fer if nota_fer else 'Nocturno: 6h ord + 2h extra noc'
+    has_extra = xd + xm + xn > 0
+
+    return {
+        'diu_o': r2(d_o), 'mix_o': r2(mx_o), 'noc_o': r2(n_o),
+        'xd': r2(xd), 'xm': r2(xm), 'xn': r2(xn),
+        'status': 'Nocturno' + (' +Extra' if has_extra else ''),
+        'nota': nota,
+        'entry_red': m2t(re_m),
+        'exit_red':  m2t(NOCTURNO_END % 1440),
     }
