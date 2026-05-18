@@ -90,19 +90,33 @@ def detect_turno(entry_m: int, exit_m: int) -> tuple:
     return best_h, early_min, late_min
 
 
-def calcular(fecha: str, punches_raw: list) -> dict:
+def calcular(fecha: str, punches_raw: list,
+             es_nocturno: bool = False, exit_str: str = None) -> dict:
     """
     Calcula horas para un empleado de Jardín.
 
     Args:
         fecha:       'YYYY-MM-DD'
         punches_raw: lista ['HH:MM', ...] — Check In / Check Out
+        es_nocturno: True si el procesador detectó turno nocturno cruzado
+        exit_str:    hora de salida del día siguiente (si es_nocturno)
     """
     is_fer, fer_name = es_feriado(fecha)
     nota_fer = f'★ Feriado: {fer_name}' if is_fer else ''
 
     if not punches_raw:
         return empty('Libre', nota_fer if is_fer else 'Día libre')
+
+    # ── NOCTURNO DESDE PROCESADOR ────────────────────────────
+    # El procesador detectó que no hay Check Out hoy y encontró
+    # el Check Out en el día siguiente
+    if es_nocturno and exit_str:
+        entry_m = t2m(punches_raw[0]) if punches_raw else NOCTURNO_START
+        exit_m  = t2m(exit_str) + 24 * 60  # siguiente día
+        res = _calcular_nocturno(fecha, entry_m, exit_m,
+                                 punches_raw[0] if punches_raw else m2t(NOCTURNO_START),
+                                 nota_fer)
+        return aplicar_feriado(res, fecha)
 
     punches = clean_punches(sorted(punches_raw, key=lambda x: t2m(x)))
 
