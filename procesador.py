@@ -209,7 +209,10 @@ def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
         )
 
     if dept == 'JARDIN':
-        return jardin.calcular(fecha_str, punches_check)
+        return jardin.calcular(
+            fecha_str, punches_check,
+            es_nocturno=es_nocturno, exit_str=exit_str
+        )
 
     # Estándar: Spa, Mantenimiento, RH, Proveeduría
     return estandar.calcular(
