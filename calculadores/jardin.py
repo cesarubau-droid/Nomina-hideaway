@@ -22,10 +22,16 @@ ORD_H     = 8
 
 # Fin programado por turno
 TURNO_FIN = {
-    6: 14 * 60,   # 06:00 → 14:00
-    7: 15 * 60,   # 07:00 → 15:00
-    8: 16 * 60,   # 08:00 → 16:00
+    6:  14 * 60,   # 06:00 → 14:00
+    7:  15 * 60,   # 07:00 → 15:00
+    8:  16 * 60,   # 08:00 → 16:00
+    22: 30 * 60,   # 22:00 → 06:00 (siguiente día = 30*60 en minutos)
 }
+
+# Turno nocturno: 22:00-06:00
+NOCTURNO_START = 22 * 60   # 22:00
+NOCTURNO_ORD_H = 6         # 6h ordinarias
+NOCTURNO_XN    = 2.0       # 2h extra nocturna fija
 
 STARTS_SORTED = sorted(TURNO_FIN.keys())
 
@@ -93,6 +99,23 @@ def calcular(fecha: str, punches_raw: list) -> dict:
     if len(punches) < 1:
         return empty('Libre', nota_fer if is_fer else 'Día libre')
 
+    # ── TURNO NOCTURNO 22:00-06:00 ───────────────────────────
+    # Detectar ANTES del sort: si algún punch es >= 21:50
+    raw_mins = [t2m(p) for p in punches_raw if p]
+    has_nocturno_entry = any(m >= NOCTURNO_START - TOLERANCE_MIN for m in raw_mins)
+    has_early_exit     = any(m <= 6 * 60 + 30 for m in raw_mins)
+
+    if has_nocturno_entry and has_early_exit:
+        # Es turno nocturno — tomar el punch >= 21:50 como entrada
+        # y el punch <= 06:30 como salida
+        entry_noc = max(m for m in raw_mins if m >= NOCTURNO_START - TOLERANCE_MIN)
+        exit_noc  = min(m for m in raw_mins if m <= 6 * 60 + 30)
+        from calculador_base import m2t as _m2t
+        entry_str_noc = _m2t(entry_noc)
+        res = _calcular_nocturno(fecha, entry_noc, exit_noc + 24*60,
+                                 entry_str_noc, nota_fer)
+        return aplicar_feriado(res, fecha)
+
     entry_str = punches[0]
     entry_m   = t2m(entry_str)
 
@@ -102,6 +125,7 @@ def calcular(fecha: str, punches_raw: list) -> dict:
                      entry_red=entry_str, exit_red='?')
 
     exit_m = t2m(punches[-1])
+
     turno_h, early_min, late_min = detect_turno(entry_m, exit_m)
     sched_end = TURNO_FIN.get(turno_h, 16 * 60)
 
@@ -155,3 +179,51 @@ def calcular(fecha: str, punches_raw: list) -> dict:
         'exit_red':  m2t(exit_rounded % 1440),
     }
     return aplicar_feriado(res, fecha)
+
+
+def _calcular_nocturno(fecha: str, entry_m: int, exit_m: int,
+                       entry_str: str, nota_fer: str) -> dict:
+    """
+    Turno nocturno 22:00-06:00:
+    6h ordinarias (0.5h mixta + 5.5h nocturna) + 2h extra nocturna fija.
+    """
+    re_m   = NOCTURNO_START        # 22:00 = 1320
+    ord_end = re_m + NOCTURNO_ORD_H * 60  # 22:00 + 6h = 28:00 (1680)
+    sched_end = 30 * 60            # 06:00 siguiente día = 1800
+
+    if exit_m <= entry_m:
+        exit_m += 24 * 60
+
+    exit_rounded = round_exit(exit_m, sched_end)
+
+    d_o, mx_o, n_o = split_hours(re_m, ord_end)
+
+    # Extra nocturna fija: 2h
+    # El turno 22:00-06:00 tiene 6h ord + 2h extra
+    # Las 2h extra son siempre nocturnas (caen dentro de 22:30-05:00)
+    xd = 0.0
+    xm = 0.0
+    xn = NOCTURNO_XN
+
+    # Extra adicional por salida tardía
+    over_min = max(0, exit_rounded - sched_end)
+    if over_min >= EXTRA_HALF_MIN:
+        xh = calc_extra(over_min)
+        if xh > 0:
+            xs2 = sched_end
+            xd2, xm2, xn2 = split_hours(xs2, xs2 + int(xh * 60))
+            xd = r2(xd + xd2)
+            xm = r2(xm + xm2)
+            xn = r2(xn + xn2)
+
+    nota = nota_fer if nota_fer else 'Nocturno: 6h ord + 2h extra noc'
+    has_extra = xd + xm + xn > 0
+
+    return {
+        'diu_o': r2(d_o), 'mix_o': r2(mx_o), 'noc_o': r2(n_o),
+        'xd': r2(xd), 'xm': r2(xm), 'xn': r2(xn),
+        'status': 'Nocturno' + (' +Extra' if has_extra else ''),
+        'nota': nota,
+        'entry_red': m2t(re_m),
+        'exit_red':  m2t(sched_end % 1440),
+    }
