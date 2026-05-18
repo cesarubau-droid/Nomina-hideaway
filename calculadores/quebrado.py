@@ -66,9 +66,9 @@ def _detect_split(punch_mins: list) -> tuple:
     """
     n = len(punch_mins)
     if n == 4:
-        # Solo es quebrado si el gap en el split (entre idx 1 y 2) es >= 3h30min
+        # Solo es quebrado si el gap en el split (entre idx 1 y 2) es >= 3h
         gap_split = punch_mins[2] - punch_mins[1]
-        if gap_split >= 210:
+        if gap_split >= 180:
             return True, 1
         # Gap menor a 3h30min → break cortísimo, tratar como turno normal
     if n == 3:
