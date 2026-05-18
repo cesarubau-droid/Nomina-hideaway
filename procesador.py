@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 from calculador_base import t2m, empty
-from calculadores import seguridad, recepcion, quebrado, estandar, compensado, ama_de_llaves, restaurante
+from calculadores import seguridad, recepcion, quebrado, estandar, compensado, ama_de_llaves, restaurante, jardin
 from generador_excel import generar_excel
 from config import (
     FERIADOS, COMPENSADO_DEPTS, CONFIANZA_NOMBRES, SPLIT_DEPTS
@@ -208,7 +208,10 @@ def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
             es_nocturno=es_nocturno, exit_str=exit_str
         )
 
-    # Estándar: Spa, Jardín, Mantenimiento, RH, Proveeduría
+    if dept == 'JARDIN':
+        return jardin.calcular(fecha_str, punches_check)
+
+    # Estándar: Spa, Mantenimiento, RH, Proveeduría
     return estandar.calcular(
         fecha_str, punches_check, dept,
         es_nocturno=es_nocturno, exit_str=exit_str,
