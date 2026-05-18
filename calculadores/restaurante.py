@@ -46,41 +46,30 @@ STARTS_SORTED = sorted(TURNOS.keys())
 def detect_turno(entry_m: int) -> tuple:
     """
     Detecta el turno:
-    1. Si está dentro de tolerancia ANTES del turno → anticipada
-    2. Si está dentro de tolerancia DESPUÉS del turno → tardío normal
-    3. Si llegó antes del primer turno → anticipada al primero
-    4. Si superó la tolerancia → turno anterior como tardío
+    1. Dentro de tolerancia (+-10min) → ese turno
+    2. Antes del primer turno → anticipada al primero
+    3. Supero tolerancia → primer turno >= entrada (siguiente turno)
     Retorna (turno_h, early_min, late_min).
     """
-    # 1 y 2. Dentro de tolerancia de algún turno (antes o después)
     for h in STARTS_SORTED:
         turno_m = h * 60
-        diff    = entry_m - turno_m  # positivo=tarde, negativo=anticipado
+        diff    = entry_m - turno_m
         if -TOLERANCE_MIN <= diff <= TOLERANCE_MIN:
             if diff <= 0:
-                # Llegó anticipado dentro de tolerancia → no cuenta como extra
                 return h, 0, 0
             else:
-                # Llegó tarde dentro de tolerancia → sin penalización
                 return h, 0, diff
 
-    # 3. Antes del primer turno → anticipada
     if entry_m < STARTS_SORTED[0] * 60:
         early_min = STARTS_SORTED[0] * 60 - entry_m
         return STARTS_SORTED[0], early_min, 0
 
-    # 4. Superó la tolerancia → turno anterior más cercano como tardío
-    best_h    = STARTS_SORTED[0]
-    best_diff = 999999
     for h in STARTS_SORTED:
-        turno_m = h * 60
-        if turno_m <= entry_m:
-            diff = entry_m - turno_m
-            if diff < best_diff:
-                best_diff = diff
-                best_h    = h
+        if h * 60 >= entry_m:
+            return h, 0, 0
 
-    return best_h, 0, best_diff
+    last_h = STARTS_SORTED[-1]
+    return last_h, 0, entry_m - last_h * 60
 
 
 def calcular(fecha: str, punches_raw: list,
