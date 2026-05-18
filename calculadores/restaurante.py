@@ -36,8 +36,8 @@ T2_EXIT1  = 14 * 60  # 14:00
 T2_ENTRY2 = 18 * 60  # 18:00
 T2_EXIT2  = 22 * 60  # 22:00
 
-# Gap mínimo para turno quebrado: 3h30min
-QUEBRADO_GAP = 210
+# Gap mínimo para turno quebrado: 3h
+QUEBRADO_GAP = 180
 
 # Starts para detect_turno
 STARTS_SORTED = sorted(TURNOS.keys())
