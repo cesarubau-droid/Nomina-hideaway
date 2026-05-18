@@ -46,16 +46,15 @@ NOCTURNO_XN    = 2.0       # 2h extra nocturna fija
 STARTS_SORTED = sorted(h for h in TURNO_FIN.keys() if h != 22)  # excluye nocturno
 
 
-def detect_turno(entry_m: int, exit_m: int) -> tuple:
+def detect_turno(entry_m: int, exit_m: int = None) -> tuple:
     """
-    Detecta el turno usando entrada y salida:
-    1. Dentro de tolerancia antes o después → ese turno
+    Detecta el turno:
+    1. Dentro de tolerancia (+-10min) → ese turno
     2. Antes del primer turno → anticipada al primero
-    3. Superó tolerancia → turno cuyo fin programado
-       esté más cerca de la salida real
+    3. Supero tolerancia → primer turno >= entrada (siguiente turno)
     Retorna (turno_h, early_min, late_min).
     """
-    # 1. Dentro de tolerancia
+    # 1. Dentro de tolerancia de algun turno
     for h in STARTS_SORTED:
         turno_m = h * 60
         diff    = entry_m - turno_m
@@ -70,24 +69,14 @@ def detect_turno(entry_m: int, exit_m: int) -> tuple:
         early_min = STARTS_SORTED[0] * 60 - entry_m
         return STARTS_SORTED[0], early_min, 0
 
-    # 3. Usar salida para desempatar — turno con fin más cercano a exit_m
-    if exit_m <= entry_m:
-        exit_m += 24 * 60
-
-    best_h    = STARTS_SORTED[0]
-    best_diff = 999999
+    # 3. Primer turno >= entrada (siguiente turno disponible)
     for h in STARTS_SORTED:
-        fin_m = TURNO_FIN[h]
-        fin_adj = fin_m if fin_m >= entry_m else fin_m + 24 * 60
-        diff = abs(exit_m - fin_adj)
-        if diff < best_diff:
-            best_diff = diff
-            best_h    = h
+        if h * 60 >= entry_m:
+            return h, 0, 0
 
-    re_m     = best_h * 60
-    early_min = max(0, re_m - entry_m)
-    late_min  = max(0, entry_m - re_m)
-    return best_h, early_min, late_min
+    # Si entro despues del ultimo turno → ultimo turno
+    last_h = STARTS_SORTED[-1]
+    return last_h, 0, entry_m - last_h * 60
 
 
 def calcular(fecha: str, punches_raw: list,
@@ -150,7 +139,7 @@ def calcular(fecha: str, punches_raw: list,
 
     exit_m = t2m(punches[-1])
 
-    turno_h, early_min, late_min = detect_turno(entry_m, exit_m)
+    turno_h, early_min, late_min = detect_turno(entry_m)
     sched_end = TURNO_FIN.get(turno_h, 16 * 60)
     ord_h     = TURNO_ORD.get(turno_h, ORD_H)
 
