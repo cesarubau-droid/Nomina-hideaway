@@ -2,7 +2,7 @@
 # CALCULADOR MANTENIMIENTO — v4.0
 # Turnos:
 #   07:00-15:00 → 8h ordinarias
-#   10:00-18:00 → 8h ordinaria
+#   10:00-18:00 → 8h ordinarias
 # Regla 20/45 para extras
 # Llegada anticipada: 25min → 0.5h extra diurna
 # Tolerancia: 10min | Siguiente turno si supera tolerancia
