@@ -21,12 +21,12 @@ from calculador_base import (
 )
 from config import TOLERANCE_MIN, LATE_PENALTY, EXTRA_HALF_MIN
 
-# Turnos: inicio → (fin, ord_h)
+# Turnos: inicio → (fin, ord_h, xd_fija, xm_fija, xn_fija)
 TURNOS = {
-    6:  (15 * 60, 8),   # 06:00 → 15:00
-    8:  (16 * 60, 8),   # 08:00 → 16:00
-    9:  (17 * 60, 8),   # 09:00 → 17:00
-    15: (22 * 60, 7),   # 15:00 → 22:00
+    6:  (15 * 60, 8, 1.0, 0.0, 0.0),   # 06:00 → 15:00 (8h ord + 1h xd fija)
+    8:  (16 * 60, 8, 0.0, 0.0, 0.0),   # 08:00 → 16:00 (8h ord)
+    9:  (17 * 60, 8, 0.0, 0.0, 0.0),   # 09:00 → 17:00 (8h ord)
+    15: (22 * 60, 7, 0.0, 0.0, 0.0),   # 15:00 → 22:00 (7h ord)
 }
 
 # Turno nocturno
@@ -118,7 +118,7 @@ def calcular(fecha: str, punches_raw: list,
 
     exit_m = t2m(punches[-1])
     turno_h, early_min, late_min = detect_turno(entry_m)
-    sched_end, ord_h = TURNOS.get(turno_h, (22 * 60, 7))
+    sched_end, ord_h, xd_fija, xm_fija, xn_fija = TURNOS.get(turno_h, (22 * 60, 7, 0.0, 0.0, 0.0))
 
     is_late     = late_min > TOLERANCE_MIN
     entry_count = turno_h * 60 + LATE_PENALTY if is_late else turno_h * 60
@@ -134,12 +134,17 @@ def calcular(fecha: str, punches_raw: list,
 
     over_min = max(0, exit_rounded - sched_end)
 
-    xd = xm = xn = 0.0
+    # Extras fijas del turno
+    xd = xd_fija
+    xm = xm_fija
+    xn = xn_fija
 
     if not es_confianza:
+        # Extra por llegada anticipada (diurna)
         if early_min > 0 and not is_late:
             xd = r2(xd + calc_early(early_min))
 
+        # Extra adicional por salida más allá del turno completo
         if over_min >= EXTRA_HALF_MIN:
             xh = calc_extra(over_min)
             if xh > 0:
