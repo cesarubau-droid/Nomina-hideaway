@@ -379,7 +379,11 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
             break_outs = [t for t, s in day_punches if s == 'Break Out']
             break_ins  = [t for t, s in day_punches if s == 'Break In']
 
-            if break_outs and break_ins and check_ins and check_outs:
+            # Departamentos que pueden hacer quebrado excepcional
+            # SPA no hace quebrados — sus Break Out/Break In se ignoran
+            DEPTS_SIN_QUEBRADO = {'SPA', 'CONTABILIDAD', 'SOSTENIBILIDAD',
+                                   'RH', 'PROVEEDURIA'}
+            if break_outs and break_ins and check_ins and check_outs and dept not in DEPTS_SIN_QUEBRADO:
                 # Turno quebrado excepcional fuera de SPLIT_DEPTS
                 punches_quebrado = sorted(check_ins + check_outs +
                     [t for t, s in day_punches if s in ('Break Out', 'Break In')],
