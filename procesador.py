@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 from calculador_base import t2m, empty
-from calculadores import seguridad, recepcion, quebrado, estandar, compensado, ama_de_llaves, restaurante, jardin, mantenimiento, rh, spa
+from calculadores import seguridad, recepcion, quebrado, estandar, compensado, ama_de_llaves, restaurante, jardin, mantenimiento, rh, spa, cocina
 from generador_excel import generar_excel
 from config import (
     FERIADOS, COMPENSADO_DEPTS, CONFIANZA_NOMBRES, SPLIT_DEPTS
@@ -121,7 +121,6 @@ def leer_biotime(biotime_path):
     return df
 
 
-
 def make_record(eid, first, last, dept, tipo, fecha_str,
                 entry_raw, exit_raw, resultado):
     return {
@@ -188,6 +187,14 @@ def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
 
     if dept == 'RESTAURANTE SALON':
         return restaurante.calcular(
+            fecha_str, punches_todos,
+            es_nocturno=es_nocturno, exit_str=exit_str,
+            es_confianza=is_conf
+        )
+
+    # ── ALIMENTOS COCINA ─────────────────────────────────────
+    if dept == 'ALIMENTOS COCINA':
+        return cocina.calcular(
             fecha_str, punches_todos,
             es_nocturno=es_nocturno, exit_str=exit_str,
             es_confianza=is_conf
@@ -373,18 +380,12 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 continue
 
             # ── RESTO DE DEPARTAMENTOS ────────────────────────────
-            # Detección universal de turno quebrado:
-            # Si hay Break Out y Break In → tratar como quebrado
-            # independientemente del departamento
             break_outs = [t for t, s in day_punches if s == 'Break Out']
             break_ins  = [t for t, s in day_punches if s == 'Break In']
 
-            # Departamentos que pueden hacer quebrado excepcional
-            # SPA no hace quebrados — sus Break Out/Break In se ignoran
             DEPTS_SIN_QUEBRADO = {'SPA', 'CONTABILIDAD', 'SOSTENIBILIDAD',
                                    'RH', 'PROVEEDURIA'}
             if break_outs and break_ins and check_ins and check_outs and dept not in DEPTS_SIN_QUEBRADO:
-                # Turno quebrado excepcional fuera de SPLIT_DEPTS
                 punches_quebrado = sorted(check_ins + check_outs +
                     [t for t, s in day_punches if s in ('Break Out', 'Break In')],
                     key=lambda x: t2m(x))
@@ -413,7 +414,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 for i, exit_t in enumerate(check_outs):
                     if i in salidas_usadas: continue
                     exit_m = t2m(exit_t)
-                    # Si salida < entrada → cruzó medianoche
                     exit_m_adj = exit_m + 24 * 60 if exit_m < entry_m else exit_m
                     diff = exit_m_adj - entry_m
                     if 0 < diff < best_diff:
@@ -428,7 +428,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
 
             for entry_t, exit_t in turnos_dia:
                 if exit_t is None:
-                    # Buscar salida en el día siguiente
                     next_day     = d + timedelta(days=1)
                     next_punches = punches_map.get((eid, next_day), [])
                     next_outs    = sorted(
@@ -456,7 +455,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                             fecha_str, entry_t, '?', res
                         ))
                 else:
-                    # Verificar si cruza medianoche
                     es_noc = t2m(exit_t) < t2m(entry_t)
                     res = calcular_resultado(
                         dept, fecha_str,
