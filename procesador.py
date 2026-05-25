@@ -31,7 +31,7 @@ EMP_MAP = {
     22:  ('SOSTENIBILIDAD',    False),
     47:  ('PROVEEDURIA',       False),
     54:  ('PROVEEDURIA',       False),
-    65:  ('PROVEEDURIA',       True),
+    # 65: Mónica — outsourcing, excluida
     84:  ('CONTABILIDAD',      False),
     # 1: Joseph Arroyo — outsourcing, excluido
     138: ('AMA DE LLAVES',     True),
@@ -48,7 +48,7 @@ EMP_MAP = {
 }
 
 # Empleados excluidos de la nómina (outsourcing u otros)
-EXCLUIDOS = {1}  # Joseph Arroyo — outsourcing
+EXCLUIDOS = {1, 65}  # Joseph Arroyo, Mónica — outsourcing
 
 # Punch states
 CHECK_IN_STATES  = {'Check In', 'Overtime In'}
