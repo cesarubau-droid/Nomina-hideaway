@@ -1,9 +1,10 @@
 # ============================================================
-# CALCULADOR SPA — v4.0
+# CALCULADOR SPA — v4.1
 # Turnos:
 #   06:00-14:00 → 8h ordinarias
 #   09:00-17:00 → 8h ordinarias
 #   10:00-18:00 → 8h ordinarias
+#   12:00-19:00 → 7h ordinarias
 #   14:00-21:00 → 7h ordinarias
 # Regla 20/45 para extras
 # Llegada anticipada: 25min → 0.5h extra diurna
@@ -11,6 +12,8 @@
 # Sin quebrados ni nocturnos
 # Sin empleados de confianza
 # Feriados: todas las horas se duplican
+# Fix v4.1: detect_turno usa siguiente turno >= entrada
+#           en vez de desempatar por salida (causaba asignaciones incorrectas)
 # ============================================================
 
 from calculador_base import (
@@ -25,19 +28,19 @@ TURNOS = {
     6:  (14 * 60, 8),   # 06:00 → 14:00
     9:  (17 * 60, 8),   # 09:00 → 17:00
     10: (18 * 60, 8),   # 10:00 → 18:00
-    12: (19 * 60, 7),   # 12:00 → 19:00 (7h ordinarias)
+    12: (19 * 60, 7),   # 12:00 → 19:00
     14: (21 * 60, 7),   # 14:00 → 21:00
 }
 
 STARTS_SORTED = sorted(TURNOS.keys())
 
 
-def detect_turno(entry_m: int, exit_m: int = None) -> tuple:
+def detect_turno(entry_m: int) -> tuple:
     """
-    Detecta el turno usando entrada y salida:
-    1. Dentro de tolerancia (+-10min) → ese turno
-    2. Fuera de tolerancia → turno cuyo fin programado
-       este mas cerca de la salida real
+    Detecta el turno según la entrada:
+    1. Dentro de tolerancia (±10min) → ese turno
+    2. Antes del primer turno → anticipada al primero
+    3. Fuera de tolerancia → siguiente turno >= entrada
     Retorna (turno_h, early_min, late_min).
     """
     # 1. Dentro de tolerancia
@@ -50,29 +53,16 @@ def detect_turno(entry_m: int, exit_m: int = None) -> tuple:
             else:
                 return h, 0, diff
 
-    # 2. Usar salida para desempatar
-    if exit_m is not None:
-        if exit_m <= entry_m:
-            exit_m += 24 * 60
-        best_h    = STARTS_SORTED[0]
-        best_diff = 999999
-        for h in STARTS_SORTED:
-            fin_m   = TURNOS[h][0]
-            fin_adj = fin_m if fin_m >= entry_m else fin_m + 24 * 60
-            diff    = abs(exit_m - fin_adj)
-            if diff < best_diff:
-                best_diff = diff
-                best_h    = h
-        re_m = best_h * 60
-        if entry_m < re_m:
-            return best_h, re_m - entry_m, 0
-        else:
-            return best_h, 0, entry_m - re_m
+    # 2. Llegó antes del primer turno → anticipa al primero
+    if entry_m < STARTS_SORTED[0] * 60:
+        early_min = STARTS_SORTED[0] * 60 - entry_m
+        return STARTS_SORTED[0], early_min, 0
 
-    # 3. Sin salida → primer turno >= entrada
+    # 3. Fuera de tolerancia → siguiente turno >= entrada
     for h in STARTS_SORTED:
         if h * 60 >= entry_m:
             return h, 0, 0
+
     last_h = STARTS_SORTED[-1]
     return last_h, 0, entry_m - last_h * 60
 
@@ -101,11 +91,11 @@ def calcular(fecha: str, punches_raw: list) -> dict:
                      entry_red=entry_str, exit_red='?')
 
     exit_m = t2m(punches[-1])
-    turno_h, early_min, late_min = detect_turno(entry_m, exit_m)
+    turno_h, early_min, late_min = detect_turno(entry_m)
     sched_end, ord_h = TURNOS.get(turno_h, (21 * 60, 7))
 
     is_late     = late_min > TOLERANCE_MIN
-    entry_count = turno_h * 60
+    entry_count = turno_h * 60 if not is_late else turno_h * 60 + 30
 
     if exit_m <= entry_count:
         exit_m += 24 * 60
