@@ -383,6 +383,7 @@
 
         finishProgress();
         setTimeout(() => {
+          status.style.display = '';
           status.className = 'status success';
           status.innerHTML = successHTML;
         }, 850);
