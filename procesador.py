@@ -101,18 +101,29 @@ def leer_biotime(biotime_path):
     ), errors='coerce').fillna(0)
     df['Employee_ID'] = pd.to_numeric(df['Employee_ID'], errors='coerce')
 
-    # Inferir Employee_ID por nombre completo cuando está vacío (filas agregadas manualmente por Andry)
+    # Inferir Employee_ID por nombre cuando está vacío (filas agregadas manualmente por Andry)
+    # Usa First_Name + Last_Name si existe, si no solo First_Name
     nombre_a_eid = {}
+    nombre_fn_a_eid = {}  # fallback solo por First_Name
     for _, r in df[df['Employee_ID'].notna()].iterrows():
-        nombre = (str(r['First_Name']).strip() + ' ' + str(r['Last_Name']).strip()).lower()
-        if nombre not in nombre_a_eid:
-            nombre_a_eid[nombre] = int(r['Employee_ID'])
+        fn = str(r['First_Name']).strip()
+        ln = str(r['Last_Name']).strip() if pd.notna(r['Last_Name']) else ''
+        nombre_completo = (fn + ' ' + ln).strip().lower()
+        if nombre_completo not in nombre_a_eid:
+            nombre_a_eid[nombre_completo] = int(r['Employee_ID'])
+        if fn.lower() not in nombre_fn_a_eid:
+            nombre_fn_a_eid[fn.lower()] = int(r['Employee_ID'])
 
     def inferir_eid(row):
         if pd.notna(row['Employee_ID']):
             return row['Employee_ID']
-        nombre = (str(row['First_Name']).strip() + ' ' + str(row['Last_Name']).strip()).lower()
-        return nombre_a_eid.get(nombre, float('nan'))
+        fn = str(row['First_Name']).strip()
+        ln = str(row['Last_Name']).strip() if pd.notna(row['Last_Name']) else ''
+        nombre_completo = (fn + ' ' + ln).strip().lower()
+        # Primero intenta nombre completo, luego solo First_Name como fallback
+        if nombre_completo in nombre_a_eid:
+            return nombre_a_eid[nombre_completo]
+        return nombre_fn_a_eid.get(fn.lower(), float('nan'))
 
     df['Employee_ID'] = df.apply(inferir_eid, axis=1)
 
