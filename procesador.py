@@ -482,6 +482,37 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
     return pd.DataFrame(records)
 
 
+
+# ── VALIDADOR DE IDs ─────────────────────────────────────────
+
+def validar_ids(biotime_path: str) -> list:
+    """
+    Lee el archivo de BioTime y retorna una lista de nombres
+    que no tienen Employee_ID. Si la lista está vacía, el archivo
+    está listo para procesar.
+    """
+    df = pd.read_excel(biotime_path, header=None, skiprows=1)
+    df.columns = [
+        'Employee_ID', 'First_Name', 'Last_Name', 'Nick_Name', 'Gender',
+        'Dept_Code', 'Department', 'Position_Code', 'Position', 'Date', 'Time',
+        'Punch_State', 'Temperature', 'With_Mask', 'Verify_Type',
+        'Work_Code', 'Data_Sources'
+    ]
+    df = df[df['Date'] != 'Date'].copy()
+    df['Employee_ID'] = pd.to_numeric(df['Employee_ID'], errors='coerce')
+
+    sin_id = df[df['Employee_ID'].isna()].copy()
+    sin_id = sin_id.dropna(subset=['First_Name'])
+    sin_id = sin_id[sin_id['First_Name'].str.strip() != '']
+
+    faltantes = []
+    for _, r in sin_id.drop_duplicates(subset=['First_Name']).iterrows():
+        nombre = str(r['First_Name']).strip()
+        faltantes.append(nombre)
+
+    return faltantes
+
+
 # ── MAIN ─────────────────────────────────────────────────────
 
 if __name__ == '__main__':
