@@ -1,201 +1,491 @@
 # ============================================================
-# CALCULADOR BASE — Funciones compartidas
-# Hotel Rio Celeste Hideaway — Nómina v4.0
+# PROCESADOR v4.0 — Arquitectura por departamento
+# Hotel Rio Celeste Hideaway
 # ============================================================
 
+import pandas as pd
+from datetime import datetime, timedelta
+
+from calculador_base import t2m, empty
+from calculadores import seguridad, recepcion, quebrado, estandar, compensado, ama_de_llaves, restaurante, jardin, mantenimiento, rh, spa, cocina
+from generador_excel import generar_excel
 from config import (
-    EXTRA_HALF_MIN, EXTRA_FULL_MIN, TOLERANCE_MIN, LATE_PENALTY,
-    DUPLICATE_MIN, ORD_HOURS_DEFAULT, ORD_HOURS_COMPENSADO, FERIADOS
+    FERIADOS, COMPENSADO_DEPTS, CONFIANZA_NOMBRES, SPLIT_DEPTS
 )
 
+# ── MAPAS ────────────────────────────────────────────────────
 
-def t2m(t: str) -> int:
-    """'HH:MM' → minutos desde medianoche."""
-    if t is None: return 0
-    h, m = map(int, str(t)[:5].split(':'))
-    return h * 60 + m
+DEPT_MAP = {
+    'SEGURIDAD':     'SEGURIDAD',
+    'ALIMENTOS':     'ALIMENTOS COCINA',
+    'AMA DE LLAVES': 'AMA DE LLAVES',
+    'RESTAURANTE':   'RESTAURANTE SALON',
+    'RECEPCION':     'RECEPCION',
+    'SPA':           'SPA',
+    'JARDIN':        'JARDIN',
+    'MANTENIMIENTO': 'MANTENIMIENTO',
+}
+
+EMP_MAP = {
+    2:   ('RH',                False),
+    22:  ('SOSTENIBILIDAD',    False),
+    47:  ('PROVEEDURIA',       False),
+    54:  ('PROVEEDURIA',       False),
+    # 65: Mónica — outsourcing, excluida
+    84:  ('CONTABILIDAD',      False),
+    # 1: Joseph Arroyo — outsourcing, excluido
+    138: ('AMA DE LLAVES',     True),
+    141: ('ALIMENTOS COCINA',  True),
+    121: ('AMA DE LLAVES',     True),
+    62:  ('RESTAURANTE SALON', True),
+    35:  ('RESTAURANTE SALON', True),
+    76:  ('RESTAURANTE SALON', True),
+    12:  ('AMA DE LLAVES',     True),
+    40:  ('RESTAURANTE SALON', True),
+    112: ('RESTAURANTE SALON', True),
+    34:  ('RESTAURANTE SALON', True),
+    36:  ('RESTAURANTE SALON', True),
+}
+
+# Empleados excluidos de la nómina (outsourcing u otros)
+EXCLUIDOS = {1, 65}  # Joseph Arroyo, Mónica — outsourcing
+
+# Punch states
+CHECK_IN_STATES  = {'Check In', 'Overtime In'}
+CHECK_OUT_STATES = {'Check Out', 'Overtime Out'}
+# Break In/Out solo se usan para quebrados — se pasan como punches crudos
+
+# ── HELPERS ──────────────────────────────────────────────────
+
+def normalizar_dept(biotime_dept, eid):
+    d = str(biotime_dept).strip().upper()
+    if d in DEPT_MAP: return DEPT_MAP[d]
+    if eid in EMP_MAP: return EMP_MAP[eid][0]
+    return None
 
 
-def m2t(m: int) -> str:
-    """Minutos desde medianoche → 'HH:MM'."""
-    m = int(m) % (24 * 60)
-    return f"{m//60:02d}:{m%60:02d}"
+def get_tipo(eid, biotime_dept, tipo_excel):
+    dept = normalizar_dept(biotime_dept, eid)
+    if dept in COMPENSADO_DEPTS: return 'Compensado'
+    if eid in EMP_MAP and EMP_MAP[eid][1]: return 'Por Horas'
+    return tipo_excel
 
 
-def r2(x) -> float:
-    return round(float(x), 2)
+def es_confianza(first, last, tipo_excel):
+    if tipo_excel == 'Confianza': return True
+    nombre = f"{first} {last}".strip().lower()
+    return any(c in nombre for c in CONFIANZA_NOMBRES)
 
 
-def split_hours(start_m: int, end_m: int) -> tuple:
-    """
-    Divide un bloque de tiempo en horas diurnas, mixtas y nocturnas.
-    Según Código de Trabajo Art. 135:
-    Diurna: 05:00-19:00 | Mixta: 19:00-22:00 | Nocturna: 22:00-05:00
-    """
-    if end_m == start_m:
-        return 0.0, 0.0, 0.0
-    if end_m < start_m:
-        end_m += 24 * 60
-    while start_m >= 1440:
-        start_m -= 1440
-        end_m   -= 1440
+def cargar_empleados(emp_path):
+    df = pd.read_excel(emp_path)
+    df['Employee_ID'] = df['Employee_ID'].astype(int)
+    return dict(zip(df['Employee_ID'], df['Tipo']))
 
-    # Minutos:
-    # 00:00 =    0  |  05:00 =  300
-    # 19:00 = 1140  |  22:00 = 1320
-    # 24:00 = 1440  |  29:00 = 1740 (05:00 del día siguiente)
-    # 43:00 = 2580 (19:00 del día siguiente) | 46:00 = 2760 (22:00 del día siguiente)
-    segs = [
-        (0,    300,  'noc'),   # 00:00 → 05:00
-        (300,  1140, 'diu'),   # 05:00 → 19:00
-        (1140, 1320, 'mix'),   # 19:00 → 22:00
-        (1320, 1440, 'noc'),   # 22:00 → 24:00
-        # Segunda vuelta (turnos que cruzan medianoche)
-        (1440, 1740, 'noc'),   # 24:00 → 29:00 (00:00 → 05:00)
-        (1740, 2580, 'diu'),   # 29:00 → 43:00 (05:00 → 19:00)
-        (2580, 2760, 'mix'),   # 43:00 → 46:00 (19:00 → 22:00)
-        (2760, 2880, 'noc'),   # 46:00 → 48:00 (22:00 → 24:00)
+
+def leer_biotime(biotime_path):
+    df = pd.read_excel(biotime_path, header=None, skiprows=1)
+    df.columns = [
+        'Employee_ID', 'First_Name', 'Last_Name', 'Nick_Name', 'Gender',
+        'Dept_Code', 'Department', 'Position_Code', 'Position', 'Date', 'Time',
+        'Punch_State', 'Temperature', 'With_Mask', 'Verify_Type',
+        'Work_Code', 'Data_Sources'
     ]
-    diu = mix = noc = 0
-    for ss, se, tp in segs:
-        os_ = max(start_m, ss)
-        oe_ = min(end_m, se)
-        if oe_ > os_:
-            mins = oe_ - os_
-            if tp == 'diu':   diu += mins
-            elif tp == 'mix': mix += mins
-            else:             noc += mins
-    return r2(diu / 60), r2(mix / 60), r2(noc / 60)
+    df = df[df['Date'] != 'Date'].copy()
+    df = df.dropna(subset=['Time'])
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df = df.dropna(subset=['Date'])
+    df['Time'] = df['Time'].apply(lambda x: str(x)[:5] if pd.notna(x) and x != '' else None)
+    df['Time_sort'] = pd.to_numeric(df['Time'].apply(
+        lambda x: int(x[:2])*60+int(x[3:5]) if x and len(x) >= 5 else 0
+    ), errors='coerce').fillna(0)
+    df['Employee_ID'] = pd.to_numeric(df['Employee_ID'], errors='coerce')
+
+    # Inferir Employee_ID por nombre completo cuando está vacío (filas agregadas manualmente por Andry)
+    nombre_a_eid = {}
+    for _, r in df[df['Employee_ID'].notna()].iterrows():
+        nombre = (str(r['First_Name']).strip() + ' ' + str(r['Last_Name']).strip()).lower()
+        if nombre not in nombre_a_eid:
+            nombre_a_eid[nombre] = int(r['Employee_ID'])
+
+    def inferir_eid(row):
+        if pd.notna(row['Employee_ID']):
+            return row['Employee_ID']
+        nombre = (str(row['First_Name']).strip() + ' ' + str(row['Last_Name']).strip()).lower()
+        return nombre_a_eid.get(nombre, float('nan'))
+
+    df['Employee_ID'] = df.apply(inferir_eid, axis=1)
+
+    df = df.sort_values(['Employee_ID', 'Date', 'Time_sort']).reset_index(drop=True)
+    df = df.drop(columns=['Time_sort'])
+    return df
 
 
-def nearest_shift(entry_m: int, starts: list) -> tuple:
-    """
-    Turno más cercano a la entrada real.
-    En empate → turno anterior (menor hora).
-    Retorna (turno_minutos, diferencia_minutos).
-    """
-    diffs = [(abs(entry_m - h * 60), h) for h in starts]
-    diffs.sort()
-    min_diff = diffs[0][0]
-    candidates = [h for d, h in diffs if d == min_diff]
-    best = min(candidates)
-    return best * 60, entry_m - best * 60
-
-
-def round_exit(exit_m: int, sched_end: int) -> int:
-    """
-    Redondea la salida real con regla 20/45 relativa al fin del turno.
-    - Salida tardía: regla 20/45 hacia adelante
-    - Salida anticipada: regla 20/45 hacia atrás (descuenta)
-    - Menos de 20min de diferencia en cualquier dirección → fin programado
-    """
-    diff = exit_m - sched_end
-
-    # Salida tardía
-    if diff > 0:
-        if diff > 12 * 60:
-            diff = 0
-        full = diff // 60
-        rem  = diff % 60
-        if rem < EXTRA_HALF_MIN:
-            return sched_end + full * 60
-        elif rem < EXTRA_FULL_MIN:
-            return sched_end + full * 60 + 30
-        else:
-            return sched_end + (full + 1) * 60
-
-    # Salida anticipada
-    early = sched_end - exit_m
-    if early < 15:
-        return sched_end
-    elif early < EXTRA_FULL_MIN:
-        return sched_end - 30
-    else:
-        full  = early // 60
-        rem   = early % 60
-        if rem < 15:
-            return sched_end - full * 60
-        elif rem < EXTRA_FULL_MIN:
-            return sched_end - full * 60 - 30
-        else:
-            return sched_end - (full + 1) * 60
-
-
-def calc_extra(over_min: int) -> float:
-    """Horas extra según regla 20/45."""
-    if over_min < EXTRA_HALF_MIN:
-        return 0
-    elif over_min < EXTRA_FULL_MIN:
-        return 0.5
-    else:
-        full = over_min // 60
-        rem  = over_min % 60
-        if rem < EXTRA_HALF_MIN:   er = 0
-        elif rem < EXTRA_FULL_MIN: er = 0.5
-        else:                      er = 1.0
-        return full + er
-
-
-def clean_punches(punches: list) -> list:
-    """Elimina marcaciones con menos de DUPLICATE_MIN entre sí."""
-    if not punches: return []
-    cleaned = [punches[0]]
-    for p in punches[1:]:
-        if t2m(p) - t2m(cleaned[-1]) >= DUPLICATE_MIN:
-            cleaned.append(p)
-    return cleaned
-
-
-def empty(status, nota='', entry_red='', exit_red=''):
+def make_record(eid, first, last, dept, tipo, fecha_str,
+                entry_raw, exit_raw, resultado):
     return {
-        'diu_o': 0, 'mix_o': 0, 'noc_o': 0,
-        'xd': 0, 'xm': 0, 'xn': 0,
-        'status': status, 'nota': nota,
-        'entry_red': entry_red, 'exit_red': exit_red,
+        'ID':              eid,
+        'Nombre':          first,
+        'Apellido':        last,
+        'Departamento':    dept,
+        'Tipo':            tipo,
+        'Fecha':           fecha_str,
+        'Feriado':         FERIADOS.get(fecha_str, ''),
+        'Entrada Real':    entry_raw,
+        'Entrada Redond':  resultado['entry_red'],
+        'Salida Real':     exit_raw,
+        'Salida Redond':   resultado['exit_red'],
+        'Diurnas Ord':     resultado['diu_o'],
+        'Mixtas Ord':      resultado['mix_o'],
+        'Nocturnas Ord':   resultado['noc_o'],
+        'Extra Diurnas':   resultado['xd'],
+        'Extra Mixtas':    resultado['xm'],
+        'Extra Nocturnas': resultado['xn'],
+        'Estado':          resultado['status'],
+        'Notas':           resultado['nota'],
     }
 
 
-def es_feriado(fecha: str) -> tuple:
-    return fecha in FERIADOS, FERIADOS.get(fecha, '')
+def make_libre(eid, first, last, dept, tipo, fecha_str):
+    fer = FERIADOS.get(fecha_str, '')
+    return {
+        'ID': eid, 'Nombre': first, 'Apellido': last,
+        'Departamento': dept, 'Tipo': tipo,
+        'Fecha': fecha_str, 'Feriado': fer,
+        'Entrada Real': 'LIBRE', 'Entrada Redond': '',
+        'Salida Real': 'LIBRE', 'Salida Redond': '',
+        'Diurnas Ord': 0, 'Mixtas Ord': 0, 'Nocturnas Ord': 0,
+        'Extra Diurnas': 0, 'Extra Mixtas': 0, 'Extra Nocturnas': 0,
+        'Estado': 'Libre',
+        'Notas': f'★ Feriado: {fer}' if fer else 'Día libre',
+    }
 
 
-def calc_early(early_min: int) -> float:
+# ── ENRUTADOR ────────────────────────────────────────────────
+
+def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
+                       tipo, is_conf, es_nocturno=False, exit_str=None):
     """
-    Calcula horas extra por llegada anticipada.
-    Umbral: 25min antes del turno.
-    - Menos de 25min → 0h extra
-    - Entre 25 y 44min → 0.5h extra
-    - 45min o más → escala igual que regla 20/45
-    Siempre son horas diurnas.
+    Llama al calculador correcto según el departamento.
+
+    punches_check: solo Check In / Check Out (para depts normales)
+    punches_todos: todas las marcas ordenadas (para quebrados)
     """
-    if early_min < 25:
-        return 0.0
-    elif early_min < 45:
-        return 0.5
-    else:
-        full = early_min // 60
-        rem  = early_min % 60
-        if rem < 25:   er = 0.0
-        elif rem < 45: er = 0.5
-        else:          er = 1.0
-        return float(full) + er
+    if dept == 'SEGURIDAD':
+        return seguridad.calcular(
+            fecha_str, punches_check,
+            es_nocturno=es_nocturno, exit_str=exit_str,
+            es_confianza=is_conf
+        )
+
+    if dept == 'RECEPCION':
+        return recepcion.calcular(
+            fecha_str, punches_check,
+            es_nocturno=es_nocturno, exit_str=exit_str,
+            es_confianza=is_conf
+        )
+
+    if dept == 'RESTAURANTE SALON':
+        return restaurante.calcular(
+            fecha_str, punches_todos,
+            es_nocturno=es_nocturno, exit_str=exit_str,
+            es_confianza=is_conf
+        )
+
+    # ── ALIMENTOS COCINA ─────────────────────────────────────
+    if dept == 'ALIMENTOS COCINA':
+        return cocina.calcular(
+            fecha_str, punches_todos,
+            es_nocturno=es_nocturno, exit_str=exit_str,
+            es_confianza=is_conf
+        )
+
+    if dept in SPLIT_DEPTS:
+        return quebrado.calcular(
+            fecha_str, punches_todos, dept,
+            es_confianza=is_conf
+        )
+
+    if dept in COMPENSADO_DEPTS:
+        return compensado.calcular(fecha_str, punches_check, dept)
+
+    if dept == 'AMA DE LLAVES':
+        return ama_de_llaves.calcular(
+            fecha_str, punches_check,
+            es_nocturno=es_nocturno, exit_str=exit_str
+        )
+
+    if dept == 'SPA':
+        return spa.calcular(fecha_str, punches_check)
+
+    if dept == 'RH':
+        return rh.calcular(fecha_str, punches_check)
+
+    if dept == 'MANTENIMIENTO':
+        return mantenimiento.calcular(fecha_str, punches_check)
+
+    if dept == 'JARDIN':
+        return jardin.calcular(
+            fecha_str, punches_check,
+            es_nocturno=es_nocturno, exit_str=exit_str
+        )
+
+    # Estándar: Spa, Mantenimiento, RH, Proveeduría
+    return estandar.calcular(
+        fecha_str, punches_check, dept,
+        es_nocturno=es_nocturno, exit_str=exit_str,
+        es_confianza=is_conf
+    )
 
 
-def aplicar_feriado(resultado: dict, fecha: str) -> dict:
-    """
-    Si el día es feriado, duplica todas las horas (ordinarias y extras).
-    Se aplica al resultado final de cualquier calculador.
-    """
-    is_fer, fer_name = es_feriado(fecha)
-    if not is_fer:
-        return resultado
+# ── PROCESADOR PRINCIPAL ─────────────────────────────────────
 
-    r = resultado.copy()
-    r['diu_o'] = r2(r['diu_o'] * 2)
-    r['mix_o'] = r2(r['mix_o'] * 2)
-    r['noc_o'] = r2(r['noc_o'] * 2)
-    r['xd']    = r2(r['xd']    * 2)
-    r['xm']    = r2(r['xm']    * 2)
-    r['xn']    = r2(r['xn']    * 2)
-    r['nota']  = f'★ Feriado: {fer_name} — horas duplicadas'
-    return r
+def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
+    df        = leer_biotime(biotime_path)
+    emp_tipos = cargar_empleados(emp_path)
+
+    fi_date = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+    ff_date = datetime.strptime(fecha_fin,    '%Y-%m-%d').date()
+
+    # Construir estructura de punches por (eid, date)
+    emp_info = {}
+    punches_map = {}  # (eid, date) → lista de (time, state)
+
+    for _, row in df.iterrows():
+        eid = row['Employee_ID']
+        if pd.isna(eid): continue
+        eid = int(eid)
+        if eid in EXCLUIDOS: continue
+        date  = row['Date'].date()
+        time  = row['Time']
+        state = str(row['Punch_State']).strip()
+        # Normalizar variantes de Punch_State escritas por Andry manualmente
+        state_map = {
+            'check in':   'Check In',
+            'check out':  'Check Out',
+            'break in':   'Break In',
+            'break out':  'Break Out',
+        }
+        state = state_map.get(state.lower(), state)
+        bdept = str(row['Department'])
+
+        if eid not in emp_info:
+            emp_info[eid] = {
+                'first': str(row['First_Name']),
+                'last':  str(row['Last_Name']),
+                'bdept': bdept,
+            }
+
+        key = (eid, date)
+        punches_map.setdefault(key, [])
+        punches_map[key].append((time, state))
+
+    # Generar lista de fechas del período
+    all_dates = []
+    d = fi_date
+    while d <= ff_date:
+        all_dates.append(d)
+        d += timedelta(days=1)
+
+    emp_set = set(eid for (eid, dt) in punches_map if fi_date <= dt <= ff_date)
+    records = []
+
+    for eid in sorted(emp_set):
+        if eid not in emp_info: continue
+        info  = emp_info[eid]
+        first = info['first']
+        last  = info['last']
+        bdept = info['bdept']
+        dept  = normalizar_dept(bdept, eid)
+        if not dept: continue
+
+        tipo_excel = emp_tipos.get(eid, 'Fijo')
+        tipo       = get_tipo(eid, bdept, tipo_excel)
+        is_conf    = es_confianza(first, last, tipo_excel)
+        if is_conf: tipo = 'Confianza'
+
+        for d in all_dates:
+            fecha_str   = d.strftime('%Y-%m-%d')
+            day_punches = punches_map.get((eid, d), [])
+
+            # ── SIN MARCACIONES → LIBRE ───────────────────────────
+            if not day_punches:
+                records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
+                continue
+
+            # ── SEPARAR TIPOS DE PUNCH ────────────────────────────
+            check_ins  = sorted(
+                [t for t, s in day_punches if s in CHECK_IN_STATES],
+                key=lambda x: t2m(x)
+            )
+            check_outs = sorted(
+                [t for t, s in day_punches if s in CHECK_OUT_STATES],
+                key=lambda x: t2m(x)
+            )
+            # Todas las marcas ordenadas (para quebrados)
+            todos = sorted(
+                [t for t, s in day_punches],
+                key=lambda x: t2m(x)
+            )
+
+            # ── SOLO SALIDAS SIN ENTRADA → LIBRE ─────────────────
+            # Son salidas del turno nocturno del día anterior
+            if not check_ins and check_outs:
+                records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
+                continue
+
+            # ── SIN CHECK IN NI CHECK OUT ─────────────────────────
+            if not check_ins and not check_outs:
+                records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
+                continue
+
+            # ── DEPARTAMENTOS QUEBRADOS ───────────────────────────
+            # Pasan TODAS las marcas al calculador
+            if dept in SPLIT_DEPTS:
+                # Si no hay check out hoy → buscar en día siguiente
+                if not check_outs:
+                    next_day = d + timedelta(days=1)
+                    next_punches = punches_map.get((eid, next_day), [])
+                    next_outs = sorted(
+                        [t for t, s in next_punches if s in CHECK_OUT_STATES],
+                        key=lambda x: t2m(x)
+                    )
+                    if next_outs:
+                        todos_ext = todos + [next_outs[0]]
+                        res = calcular_resultado(
+                            dept, fecha_str, check_ins, todos_ext,
+                            tipo, is_conf
+                        )
+                        records.append(make_record(
+                            eid, first, last, dept, tipo, fecha_str,
+                            check_ins[0], next_outs[0], res
+                        ))
+                    else:
+                        res = empty('Sin salida — Andry ajusta',
+                                    f'Entrada: {check_ins[0]}',
+                                    entry_red=check_ins[0], exit_red='?')
+                        records.append(make_record(
+                            eid, first, last, dept, tipo, fecha_str,
+                            check_ins[0], '?', res
+                        ))
+                else:
+                    res = calcular_resultado(
+                        dept, fecha_str, check_ins, todos,
+                        tipo, is_conf
+                    )
+                    records.append(make_record(
+                        eid, first, last, dept, tipo, fecha_str,
+                        check_ins[0], check_outs[-1], res
+                    ))
+                continue
+
+            # ── RESTO DE DEPARTAMENTOS ────────────────────────────
+            break_outs = [t for t, s in day_punches if s == 'Break Out']
+            break_ins  = [t for t, s in day_punches if s == 'Break In']
+
+            DEPTS_SIN_QUEBRADO = {'SPA', 'CONTABILIDAD', 'SOSTENIBILIDAD',
+                                   'RH', 'PROVEEDURIA'}
+            if break_outs and break_ins and check_ins and check_outs and dept not in DEPTS_SIN_QUEBRADO:
+                punches_quebrado = sorted(check_ins + check_outs +
+                    [t for t, s in day_punches if s in ('Break Out', 'Break In')],
+                    key=lambda x: t2m(x))
+                if dept == 'AMA DE LLAVES':
+                    res = ama_de_llaves.calcular(fecha_str, punches_quebrado)
+                else:
+                    res = quebrado.calcular(
+                        fecha_str, punches_quebrado, dept,
+                        es_confianza=is_conf
+                    )
+                records.append(make_record(
+                    eid, first, last, dept, tipo, fecha_str,
+                    check_ins[0], check_outs[-1], res
+                ))
+                continue
+
+            # Procesar pares Check In → Check Out normales
+            salidas_usadas = set()
+            turnos_dia     = []
+
+            for entry_t in check_ins:
+                entry_m   = t2m(entry_t)
+                best_exit = None
+                best_diff = 999999
+
+                for i, exit_t in enumerate(check_outs):
+                    if i in salidas_usadas: continue
+                    exit_m = t2m(exit_t)
+                    exit_m_adj = exit_m + 24 * 60 if exit_m < entry_m else exit_m
+                    diff = exit_m_adj - entry_m
+                    if 0 < diff < best_diff:
+                        best_diff = diff
+                        best_exit = (i, exit_t)
+
+                if best_exit:
+                    salidas_usadas.add(best_exit[0])
+                    turnos_dia.append((entry_t, best_exit[1]))
+                else:
+                    turnos_dia.append((entry_t, None))
+
+            for entry_t, exit_t in turnos_dia:
+                if exit_t is None:
+                    next_day     = d + timedelta(days=1)
+                    next_punches = punches_map.get((eid, next_day), [])
+                    next_outs    = sorted(
+                        [t for t, s in next_punches if s in CHECK_OUT_STATES],
+                        key=lambda x: t2m(x)
+                    )
+                    if next_outs:
+                        exit_t = next_outs[0]
+                        res = calcular_resultado(
+                            dept, fecha_str,
+                            [entry_t], todos,
+                            tipo, is_conf,
+                            es_nocturno=True, exit_str=exit_t
+                        )
+                        records.append(make_record(
+                            eid, first, last, dept, tipo,
+                            fecha_str, entry_t, exit_t, res
+                        ))
+                    else:
+                        res = empty('Sin salida — Andry ajusta',
+                                    f'Entrada: {entry_t}',
+                                    entry_red=entry_t, exit_red='?')
+                        records.append(make_record(
+                            eid, first, last, dept, tipo,
+                            fecha_str, entry_t, '?', res
+                        ))
+                else:
+                    es_noc = t2m(exit_t) < t2m(entry_t)
+                    res = calcular_resultado(
+                        dept, fecha_str,
+                        [entry_t, exit_t], todos,
+                        tipo, is_conf,
+                        es_nocturno=es_noc,
+                        exit_str=exit_t if es_noc else None
+                    )
+                    records.append(make_record(
+                        eid, first, last, dept, tipo,
+                        fecha_str, entry_t, exit_t, res
+                    ))
+
+    return pd.DataFrame(records)
+
+
+# ── MAIN ─────────────────────────────────────────────────────
+
+if __name__ == '__main__':
+    import sys
+
+    biotime = sys.argv[1] if len(sys.argv) > 1 else 'biotime.xlsx'
+    emp     = sys.argv[2] if len(sys.argv) > 2 else 'empleados.xlsx'
+    fi      = sys.argv[3] if len(sys.argv) > 3 else '2026-04-10'
+    ff      = sys.argv[4] if len(sys.argv) > 4 else '2026-04-24'
+
+    print(f"Procesando {biotime} del {fi} al {ff}...")
+    df_result = procesar(biotime, emp, fi, ff)
+
+    print(f"Total registros : {len(df_result)}")
+    print(f"Empleados       : {df_result['ID'].nunique()}")
+
+    generar_excel(df_result, 'output_nomina.xlsx')
+    print("Reporte guardado en output_nomina.xlsx")
