@@ -369,19 +369,23 @@
       const data = await resp.json();
 
       if (data.success) {
-        finishProgress();
         const advHTML = data.advertencia
           ? `<div class="advertencia">⚠ ${data.advertencia}<br>
              <small>Rango en BioTime: ${data.biotime_rango}</small></div>`
           : '';
 
-        status.className = 'status success';
-        status.innerHTML = `
+        const successHTML = `
           ✓ Reporte generado correctamente.<br>
           <small style="color:#374151">${data.registros} registros · ${data.empleados} empleados</small>
           ${advHTML}
           <br><a class="download-btn" href="/descargar/${data.archivo}">⬇ Descargar Excel</a>
         `;
+
+        finishProgress();
+        setTimeout(() => {
+          status.className = 'status success';
+          status.innerHTML = successHTML;
+        }, 850);
       } else {
         resetProgress();
         status.className = 'status error';
