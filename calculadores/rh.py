@@ -1,15 +1,15 @@
 # ============================================================
-# CALCULADOR RH — v4.0
+# CALCULADOR RH — v4.1
 # Turnos:
 #   06:00-14:00 → 8h ordinarias
 #   07:00-15:00 → 8h ordinarias
 #   08:00-16:00 → 8h ordinarias
 # Regla 20/45 para extras
 # Llegada anticipada: 25min → 0.5h extra diurna
-# Tolerancia: 10min | Siguiente turno si supera tolerancia
+# Tolerancia: 10min | Tardío suma 30min al entry_count
 # Sin quebrados ni nocturnos
-# Sin empleados de confianza
 # Feriados: todas las horas se duplican
+# Fix v4.1: entry_count ahora suma LATE_PENALTY cuando es tardío
 # ============================================================
 
 from calculador_base import (
@@ -17,7 +17,7 @@ from calculador_base import (
     round_exit, calc_extra, calc_early, clean_punches,
     empty, es_feriado, aplicar_feriado
 )
-from config import TOLERANCE_MIN, EXTRA_HALF_MIN
+from config import TOLERANCE_MIN, LATE_PENALTY, EXTRA_HALF_MIN
 
 TURNOS = {
     6:  (14 * 60, 8),   # 06:00 → 14:00
@@ -71,7 +71,7 @@ def calcular(fecha: str, punches_raw: list) -> dict:
     sched_end, ord_h = TURNOS.get(turno_h, (16 * 60, 8))
 
     is_late     = late_min > TOLERANCE_MIN
-    entry_count = turno_h * 60
+    entry_count = turno_h * 60 + LATE_PENALTY if is_late else turno_h * 60  # ← fix
 
     if exit_m <= entry_count:
         exit_m += 24 * 60
