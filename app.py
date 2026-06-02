@@ -6,7 +6,7 @@
 import os
 from flask import Flask, render_template, request, send_file, jsonify
 from werkzeug.utils import secure_filename
-from procesador import procesar, validar_ids
+from procesador import procesar, validar_ids, validar_fechas
 from generador_excel import generar_excel
 
 app = Flask(__name__)
@@ -53,6 +53,10 @@ def generar():
                          f'Completá los siguientes nombres en el archivo antes de subir:\n\n{lista}'
             }), 400
 
+        # ── VALIDACIÓN DE FECHAS ──────────────────────────────
+        fechas = validar_fechas(biotime_path, fecha_inicio, fecha_fin)
+        advertencia = fechas.get('advertencia')
+
         # ── PROCESAMIENTO ─────────────────────────────────────
         df = procesar(biotime_path, EMPLEADOS_PATH, fecha_inicio, fecha_fin)
 
@@ -61,10 +65,12 @@ def generar():
         generar_excel(df, output_path)
 
         return jsonify({
-            'success': True,
-            'archivo': output_name,
-            'registros': len(df),
-            'empleados': int(df['ID'].nunique()),
+            'success':     True,
+            'archivo':     output_name,
+            'registros':   len(df),
+            'empleados':   int(df['ID'].nunique()),
+            'advertencia': advertencia,
+            'biotime_rango': f"{fechas['biotime_inicio']} al {fechas['biotime_fin']}",
         })
 
     except Exception as e:
