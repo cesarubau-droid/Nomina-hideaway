@@ -483,6 +483,51 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
 
 
 
+
+# ── VALIDADOR DE FECHAS ──────────────────────────────────────
+
+def validar_fechas(biotime_path: str, fecha_inicio: str, fecha_fin: str) -> dict:
+    """
+    Verifica que las fechas ingresadas coincidan con los datos del BioTime.
+    Retorna un dict con:
+      - ok: True si todo está bien
+      - biotime_inicio: primera fecha en el BioTime
+      - biotime_fin: última fecha en el BioTime
+      - advertencia: mensaje si hay discrepancia
+    """
+    df = pd.read_excel(biotime_path, header=None, skiprows=1)
+    df.columns = [
+        'Employee_ID', 'First_Name', 'Last_Name', 'Nick_Name', 'Gender',
+        'Dept_Code', 'Department', 'Position_Code', 'Position', 'Date', 'Time',
+        'Punch_State', 'Temperature', 'With_Mask', 'Verify_Type',
+        'Work_Code', 'Data_Sources'
+    ]
+    df = df[df['Date'] != 'Date'].copy()
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df = df.dropna(subset=['Date'])
+
+    bt_inicio = df['Date'].min().date()
+    bt_fin    = df['Date'].max().date()
+
+    fi = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+    ff = datetime.strptime(fecha_fin,    '%Y-%m-%d').date()
+
+    advertencia = None
+    if fi < bt_inicio or ff > bt_fin:
+        advertencia = (
+            f"Las fechas ingresadas ({fecha_inicio} al {fecha_fin}) "
+            f"están fuera del rango del archivo BioTime "
+            f"({bt_inicio} al {bt_fin})."
+        )
+
+    return {
+        'ok': advertencia is None,
+        'biotime_inicio': str(bt_inicio),
+        'biotime_fin':    str(bt_fin),
+        'advertencia':    advertencia,
+    }
+
+
 # ── VALIDADOR DE IDs ─────────────────────────────────────────
 
 def validar_ids(biotime_path: str) -> list:
