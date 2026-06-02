@@ -512,19 +512,27 @@ def validar_fechas(biotime_path: str, fecha_inicio: str, fecha_fin: str) -> dict
     fi = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
     ff = datetime.strptime(fecha_fin,    '%Y-%m-%d').date()
 
-    advertencia = None
-    if fi < bt_inicio or ff > bt_fin:
+    advertencia      = None
+    sin_interseccion = False
+
+    # Escenario B: sin intersección — fechas completamente fuera del BioTime
+    if ff < bt_inicio or fi > bt_fin:
+        sin_interseccion = True
+
+    # Escenario A: intersección parcial — advertencia pero procesa
+    elif fi < bt_inicio or ff > bt_fin:
         advertencia = (
             f"Las fechas ingresadas ({fecha_inicio} al {fecha_fin}) "
-            f"están fuera del rango del archivo BioTime "
-            f"({bt_inicio} al {bt_fin})."
+            f"están parcialmente fuera del rango del archivo BioTime "
+            f"({bt_inicio} al {bt_fin}). El reporte solo incluye los días disponibles."
         )
 
     return {
-        'ok': advertencia is None,
-        'biotime_inicio': str(bt_inicio),
-        'biotime_fin':    str(bt_fin),
-        'advertencia':    advertencia,
+        'ok':               not sin_interseccion,
+        'sin_interseccion': sin_interseccion,
+        'biotime_inicio':   str(bt_inicio),
+        'biotime_fin':      str(bt_fin),
+        'advertencia':      advertencia,
     }
 
 
