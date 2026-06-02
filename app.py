@@ -57,6 +57,16 @@ def generar():
         fechas = validar_fechas(biotime_path, fecha_inicio, fecha_fin)
         advertencia = fechas.get('advertencia')
 
+        # Si no hay intersección → bloquear
+        if fechas.get('sin_interseccion'):
+            return jsonify({
+                'error': (
+                    f"El archivo BioTime no tiene datos para las fechas ingresadas "
+                    f"({fecha_inicio} al {fecha_fin}).\n"
+                    f"El archivo contiene datos del {fechas['biotime_inicio']} al {fechas['biotime_fin']}."
+                )
+            }), 400
+
         # ── PROCESAMIENTO ─────────────────────────────────────
         df = procesar(biotime_path, EMPLEADOS_PATH, fecha_inicio, fecha_fin)
 
