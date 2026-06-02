@@ -6,7 +6,7 @@
 import os
 from flask import Flask, render_template, request, send_file, jsonify
 from werkzeug.utils import secure_filename
-from procesador import procesar
+from procesador import procesar, validar_ids
 from generador_excel import generar_excel
 
 app = Flask(__name__)
@@ -37,7 +37,6 @@ def generar():
 
         fecha_inicio = request.form.get('fecha_inicio')
         fecha_fin    = request.form.get('fecha_fin')
-
         if not fecha_inicio or not fecha_fin:
             return jsonify({'error': 'Por favor ingresá las fechas.'}), 400
 
@@ -45,6 +44,16 @@ def generar():
         biotime_path = os.path.join(UPLOAD_FOLDER, filename)
         archivo.save(biotime_path)
 
+        # ── VALIDACIÓN DE IDs FALTANTES ───────────────────────
+        faltantes = validar_ids(biotime_path)
+        if faltantes:
+            lista = '\n'.join(f'• {n}' for n in faltantes)
+            return jsonify({
+                'error': f'Hay {len(faltantes)} fila(s) sin Employee ID. '
+                         f'Completá los siguientes nombres en el archivo antes de subir:\n\n{lista}'
+            }), 400
+
+        # ── PROCESAMIENTO ─────────────────────────────────────
         df = procesar(biotime_path, EMPLEADOS_PATH, fecha_inicio, fecha_fin)
 
         output_name = f"Nomina_{fecha_inicio}_al_{fecha_fin}.xlsx"
