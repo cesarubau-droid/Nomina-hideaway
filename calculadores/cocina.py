@@ -24,6 +24,7 @@ from config import TOLERANCE_MIN, LATE_PENALTY, EXTRA_HALF_MIN
 TURNOS = {
     6:  (15 * 60, 8, 1.0, 0.0, 0.0),   # T1: 06-15 → 8h ord + 1xd
     7:  (15 * 60, 8, 0.0, 0.0, 0.0),   # T6: 07-15 → 8h ord
+    8:  (16 * 60, 8, 0.0, 0.0, 0.0),   # T8: 08-16 → 8h ord
     11: (22 * 60, 8, 0.0, 0.0, 0.0),   # T7: 11-22 → 8h ord
     12: (22 * 60, 7, 0.0, 3.0, 0.0),   # T3: 12-22 → 7h ord + 3xm
     14: (22 * 60, 7, 0.0, 1.0, 0.0),   # T4: 14-22 → 7h ord + 1xm
@@ -49,22 +50,28 @@ def detect_turno(entry_m: int) -> tuple:
     Detecta el turno al que corresponde una entrada.
     Retorna (turno_h, early_min, late_min).
     """
+    # 1. Dentro de tolerancia (+-10min) → ese turno
     for h in STARTS_SORTED:
         turno_m = h * 60
         diff    = entry_m - turno_m
         if -TOLERANCE_MIN <= diff <= TOLERANCE_MIN:
             return h, 0, max(0, diff)
 
+    # 2. Antes del primer turno → anticipada
     if entry_m < STARTS_SORTED[0] * 60:
         early_min = STARTS_SORTED[0] * 60 - entry_m
         return STARTS_SORTED[0], early_min, 0
 
+    # 3. Fuera de tolerancia → turno más cercano
+    best_h    = STARTS_SORTED[0]
+    best_diff = 999999
     for h in STARTS_SORTED:
-        if h * 60 >= entry_m:
-            return h, 0, 0
-
-    last_h = STARTS_SORTED[-1]
-    return last_h, 0, entry_m - last_h * 60
+        diff = abs(entry_m - h * 60)
+        if diff < best_diff:
+            best_diff = diff
+            best_h    = h
+    late = entry_m - best_h * 60
+    return best_h, 0, max(0, late)
 
 
 def calcular(fecha: str, punches_raw: list,
