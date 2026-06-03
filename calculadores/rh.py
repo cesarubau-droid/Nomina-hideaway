@@ -29,18 +29,26 @@ STARTS_SORTED = sorted(TURNOS.keys())
 
 
 def detect_turno(entry_m: int) -> tuple:
+    # 1. Dentro de tolerancia → ese turno
     for h in STARTS_SORTED:
         turno_m = h * 60
         diff    = entry_m - turno_m
         if -TOLERANCE_MIN <= diff <= TOLERANCE_MIN:
             return h, 0, 0 if diff <= 0 else diff
 
+    # 2. Antes del primer turno → anticipada
     if entry_m < STARTS_SORTED[0] * 60:
         return STARTS_SORTED[0], STARTS_SORTED[0] * 60 - entry_m, 0
 
+    # 3. Fuera de tolerancia → tardío en el turno anterior más cercano
+    best_h    = STARTS_SORTED[0]
+    best_diff = 999999
     for h in STARTS_SORTED:
-        if h * 60 >= entry_m:
-            return h, 0, 0
+        diff = entry_m - h * 60
+        if 0 < diff < best_diff:
+            best_diff = diff
+            best_h    = h
+    return best_h, 0, best_diff
 
     last_h = STARTS_SORTED[-1]
     return last_h, 0, entry_m - last_h * 60
