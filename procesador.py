@@ -400,40 +400,50 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
             # Recepción con Break Out/Break In → quebrado excepcional
             # No requiere check_out en el mismo día (puede ser nocturno)
             if break_outs and break_ins and check_ins and dept == 'RECEPCION':
-                if True:
-                    todos_rec = sorted(
-                        check_ins + check_outs +
-                        [t for t, s in day_punches if s in ('Break Out', 'Break In')],
-                        key=lambda x: t2m(x)
+                entry_principal = t2m(check_ins[-1])  # última entrada del día
+                # Solo los check_outs DESPUÉS de la entrada principal
+                outs_post = [t for t in check_outs if t2m(t) > entry_principal]
+                # Punches del bloque: entrada + breaks (sin check_outs anteriores)
+                todos_rec = sorted(
+                    check_ins +
+                    [t for t, s in day_punches if s in ('Break Out', 'Break In')],
+                    key=lambda x: t2m(x)
+                )
+                # Buscar salida del día siguiente
+                next_day = d + timedelta(days=1)
+                next_punches = punches_map.get((eid, next_day), [])
+                next_outs = sorted(
+                    [t for t, s in next_punches if s in CHECK_OUT_STATES],
+                    key=lambda x: t2m(x)
+                )
+                if next_outs:
+                    res = recepcion.calcular(
+                        fecha_str, todos_rec,
+                        es_nocturno=True, exit_str=next_outs[0],
+                        es_confianza=is_conf
                     )
-                    # Buscar salida del día siguiente si no hay check out nocturno hoy
-                    if not check_outs or t2m(check_outs[-1]) > t2m(check_ins[-1]):
-                        next_day = d + timedelta(days=1)
-                        next_punches = punches_map.get((eid, next_day), [])
-                        next_outs = sorted(
-                            [t for t, s in next_punches if s in CHECK_OUT_STATES],
-                            key=lambda x: t2m(x)
-                        )
-                        if next_outs:
-                            res = recepcion.calcular(
-                                fecha_str, todos_rec,
-                                es_nocturno=True, exit_str=next_outs[0],
-                                es_confianza=is_conf
-                            )
-                            records.append(make_record(
-                                eid, first, last, dept, tipo, fecha_str,
-                                check_ins[0], next_outs[0], res
-                            ))
-                            continue
+                    records.append(make_record(
+                        eid, first, last, dept, tipo, fecha_str,
+                        check_ins[-1], next_outs[0], res
+                    ))
+                elif outs_post:
                     res = recepcion.calcular(
                         fecha_str, todos_rec,
                         es_confianza=is_conf
                     )
                     records.append(make_record(
                         eid, first, last, dept, tipo, fecha_str,
-                        check_ins[0], check_outs[-1] if check_outs else '?', res
+                        check_ins[-1], outs_post[-1], res
                     ))
-                    continue
+                else:
+                    res = empty('Sin salida — Andry ajusta',
+                                f'Entrada: {check_ins[-1]}',
+                                entry_red=check_ins[-1], exit_red='?')
+                    records.append(make_record(
+                        eid, first, last, dept, tipo, fecha_str,
+                        check_ins[-1], '?', res
+                    ))
+                continue
 
                 punches_quebrado = sorted(check_ins + check_outs +
                     [t for t, s in day_punches if s in ('Break Out', 'Break In')],
