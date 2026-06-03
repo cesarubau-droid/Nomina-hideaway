@@ -397,6 +397,42 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
             DEPTS_SIN_QUEBRADO = {'SPA', 'CONTABILIDAD', 'SOSTENIBILIDAD',
                                    'RH', 'PROVEEDURIA'}
             if break_outs and break_ins and check_ins and check_outs and dept not in DEPTS_SIN_QUEBRADO:
+                # Recepción: quebrado excepcional → pasar TODOS los punches a recepcion.calcular
+                if dept == 'RECEPCION':
+                    todos_rec = sorted(
+                        check_ins + check_outs +
+                        [t for t, s in day_punches if s in ('Break Out', 'Break In')],
+                        key=lambda x: t2m(x)
+                    )
+                    # Buscar salida del día siguiente si no hay check out nocturno hoy
+                    if not check_outs or t2m(check_outs[-1]) > t2m(check_ins[-1]):
+                        next_day = d + timedelta(days=1)
+                        next_punches = punches_map.get((eid, next_day), [])
+                        next_outs = sorted(
+                            [t for t, s in next_punches if s in CHECK_OUT_STATES],
+                            key=lambda x: t2m(x)
+                        )
+                        if next_outs:
+                            res = recepcion.calcular(
+                                fecha_str, todos_rec,
+                                es_nocturno=True, exit_str=next_outs[0],
+                                es_confianza=is_conf
+                            )
+                            records.append(make_record(
+                                eid, first, last, dept, tipo, fecha_str,
+                                check_ins[0], next_outs[0], res
+                            ))
+                            continue
+                    res = recepcion.calcular(
+                        fecha_str, todos_rec,
+                        es_confianza=is_conf
+                    )
+                    records.append(make_record(
+                        eid, first, last, dept, tipo, fecha_str,
+                        check_ins[0], check_outs[-1] if check_outs else '?', res
+                    ))
+                    continue
+
                 punches_quebrado = sorted(check_ins + check_outs +
                     [t for t, s in day_punches if s in ('Break Out', 'Break In')],
                     key=lambda x: t2m(x))
