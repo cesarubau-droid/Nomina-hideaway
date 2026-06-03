@@ -121,6 +121,9 @@ def calcular(fecha: str, punches_raw: list) -> dict:
         return aplicar_feriado(res, fecha)
 
     entry_count = turno_h * 60 + LATE_PENALTY if is_late else turno_h * 60
+    # Si es tardío, sched_end se recalcula desde entry_count
+    if is_late:
+        sched_end = entry_count + ord_h * 60
 
     if exit_m <= entry_count:
         exit_m += 24 * 60
