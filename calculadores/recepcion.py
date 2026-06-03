@@ -73,11 +73,49 @@ def calcular(fecha: str, punches_raw: list,
 
     # ── NOCTURNO DESDE PROCESADOR ────────────────────────────
     if es_nocturno and exit_str:
-        entry_m = t2m(punches_raw[0]) if punches_raw else NOCTURNO_START
-        exit_m  = t2m(exit_str) + 24 * 60
-        res = _calcular_nocturno(fecha, entry_m, exit_m,
-                                 punches_raw[0] if punches_raw else m2t(NOCTURNO_START),
+        exit_m = t2m(exit_str) + 24 * 60
+
+        # Detectar bloque extra pre-nocturno en punches_raw
+        raw_mins_noc = [t2m(p) for p in punches_raw if p]
+        pre_noc = [m for m in raw_mins_noc
+                   if m > 6 * 60 + 30 and m < NOCTURNO_START - TOLERANCE_MIN]
+
+        # Entrada nocturna = la marca más cercana a 22:00
+        noc_candidates = [m for m in raw_mins_noc if m >= NOCTURNO_START - TOLERANCE_MIN]
+        entry_noc_m = min(noc_candidates, key=lambda m: abs(m - NOCTURNO_START)) if noc_candidates else NOCTURNO_START
+
+        res = _calcular_nocturno(fecha, entry_noc_m, exit_m,
+                                 m2t(entry_noc_m),
                                  nota_fer, es_confianza)
+
+        # Sumar bloque extra si existe
+        if len(pre_noc) >= 2 and not es_confianza:
+            entry_pre_m = min(pre_noc)
+            exit_pre_m  = max(pre_noc)
+
+            # Redondear entrada hacia adelante con regla 20/45
+            entry_rem = entry_pre_m % 60
+            if entry_rem < 20:   entry_pre_r = (entry_pre_m // 60) * 60
+            elif entry_rem < 45: entry_pre_r = (entry_pre_m // 60) * 60 + 30
+            else:                entry_pre_r = (entry_pre_m // 60 + 1) * 60
+
+            # Redondear salida hacia atrás con regla 20/45
+            exit_rem = exit_pre_m % 60
+            if exit_rem < 20:   exit_pre_r = (exit_pre_m // 60) * 60
+            elif exit_rem < 45: exit_pre_r = (exit_pre_m // 60) * 60 + 30
+            else:               exit_pre_r = (exit_pre_m // 60 + 1) * 60
+
+            duracion = exit_pre_r - entry_pre_r
+            if duracion > 0:
+                xd2, xm2, xn2 = split_hours(entry_pre_r, entry_pre_r + duracion)
+                res['xd'] = r2(res['xd'] + xd2)
+                res['xm'] = r2(res['xm'] + xm2)
+                res['xn'] = r2(res['xn'] + xn2)
+                res['nota'] = (res['nota'] or '') + (
+                    f' | Bloque extra: {m2t(entry_pre_r)}-{m2t(exit_pre_r)} '
+                    f'= {round(duracion/60, 2)}h'
+                )
+
         return aplicar_feriado(res, fecha)
 
     punches = clean_punches(sorted(punches_raw, key=lambda x: t2m(x)))
