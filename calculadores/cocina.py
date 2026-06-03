@@ -247,8 +247,13 @@ def _calcular_turno(fecha, turno_h, entry_m, exit_m,
 
 def _calcular_quebrado(fecha, punches, punch_mins,
                        split_idx, es_confianza) -> dict:
-    """Turno quebrado T2: 06:00-12:00 / 17:00-22:00 → 7h ord + 4h xm fija."""
-
+    """
+    Turno quebrado dinámico — no depende de horario fijo.
+    B1: entrada redondeada → Break Out redondeado
+    B2: Break In → salida redondeada
+    Ordinarias: 7h distribuidas entre B1 y B2
+    Extras: calculadas con split_hours según donde caigan
+    """
     b1_mins = punch_mins[:split_idx + 1]
     b2_mins = punch_mins[split_idx + 1:]
 
@@ -257,15 +262,11 @@ def _calcular_quebrado(fecha, punches, punch_mins,
     entry2_m = b2_mins[0]
     exit2_m  = b2_mins[-1]
 
-    # ── B1: 06:00-12:00 ──────────────────────────────────────
-    re1      = T2_ENTRY1
-    diff1    = entry1_m - re1
-    is_late  = diff1 > TOLERANCE_MIN
-    entry1_c = re1 + LATE_PENALTY if is_late else re1
-    early1   = max(0, re1 - entry1_m) if not is_late else 0
-
-    if exit1_m <= entry1_c:
-        exit1_m += 24 * 60
+    # ── B1: redondear entrada y salida con regla 20/45 ───────
+    rem1 = entry1_m % 60
+    if rem1 < 20:   entry1_c = (entry1_m // 60) * 60
+    elif rem1 < 45: entry1_c = (entry1_m // 60) * 60 + 30
+    else:           entry1_c = (entry1_m // 60 + 1) * 60
 
     exit1_rem = exit1_m % 60
     if exit1_rem >= 45:
@@ -275,64 +276,65 @@ def _calcular_quebrado(fecha, punches, punch_mins,
     else:
         exit1_r = (exit1_m // 60) * 60
 
-    # ── B2: 17:00-22:00 ──────────────────────────────────────
-    re2     = T2_ENTRY2
-    if exit2_m <= re2:
-        exit2_m += 24 * 60
-    exit2_r = round_exit(exit2_m, T2_EXIT2)
+    # ── B2: redondear entrada y salida con regla 20/45 ───────
+    rem2 = entry2_m % 60
+    if rem2 < 20:   entry2_c = (entry2_m // 60) * 60
+    elif rem2 < 45: entry2_c = (entry2_m // 60) * 60 + 30
+    else:           entry2_c = (entry2_m // 60 + 1) * 60
 
-    # ── Horas ────────────────────────────────────────────────
+    exit2_rem = exit2_m % 60
+    if exit2_rem >= 45:
+        exit2_r = (exit2_m // 60 + 1) * 60
+    elif exit2_rem >= 20:
+        exit2_r = (exit2_m // 60) * 60 + 30
+    else:
+        exit2_r = (exit2_m // 60) * 60
+
+    if exit2_r <= entry2_c:
+        exit2_r += 24 * 60
+
+    # ── Horas totales ────────────────────────────────────────
     h1 = (exit1_r - entry1_c) / 60
-    h2 = (exit2_r - re2) / 60
+    h2 = (exit2_r - entry2_c) / 60
     if h1 < 0: h1 += 24
     if h2 < 0: h2 += 24
-    total = h1 + h2
+    total    = h1 + h2
+    ord_h    = 7
 
     # Ordinarias distribuidas entre B1 y B2
-    ord_b1 = min(h1, T2_ORD_H)
-    ord_b2 = min(h2, max(0.0, T2_ORD_H - ord_b1))
+    ord_b1 = min(h1, ord_h)
+    ord_b2 = min(h2, max(0.0, ord_h - ord_b1))
 
     d1, mx1, n1 = split_hours(entry1_c, entry1_c + int(ord_b1 * 60))
-    d2, mx2, n2 = split_hours(re2,      re2       + int(ord_b2 * 60))
+    d2, mx2, n2 = split_hours(entry2_c, entry2_c + int(ord_b2 * 60))
 
     diu_o = r2(d1 + d2)
     mix_o = r2(mx1 + mx2)
     noc_o = r2(n1 + n2)
 
-    # Extras fijas: 4h mixtas hardcodeadas
-    xd = 0.0
-    xm = T2_XM_FIJA
-    xn = 0.0
-
-    # Extra por llegada anticipada B1 → diurna
-    if early1 > 0 and not es_confianza:
-        xd = r2(xd + calc_early(early1))
-
-    # Extra adicional por salida más allá de 22:00
+    # Extras: lo que sobre de 7h → split_hours dinámico
+    xd = xm = xn = 0.0
     if not es_confianza:
-        over_min = round((total - T2_ORD_H) * 60) - int(T2_XM_FIJA * 60)
-        if over_min >= EXTRA_HALF_MIN:
-            xh = calc_extra(over_min)
-            if xh > 0:
-                xs = T2_EXIT2  # desde 22:00
-                xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
-                xd = r2(xd + xd2)
-                xm = r2(xm + xm2)
-                xn = r2(xn + xn2)
+        over_total = round((total - ord_h) * 60)
+        if over_total > 0:
+            # Extras del B2 (después de las ordinarias de B2)
+            xs = entry2_c + int(ord_b2 * 60)
+            xd2, xm2, xn2 = split_hours(xs, xs + over_total)
+            xd = r2(xd + xd2)
+            xm = r2(xm + xm2)
+            xn = r2(xn + xn2)
 
     is_fer, fer_name = es_feriado(fecha)
     nota = f'★ Feriado: {fer_name}' if is_fer else (
         f'Quebrado B1:{m2t(entry1_c)}-{m2t(exit1_r % 1440)} '
-        f'+ B2:{m2t(re2)}-{m2t(exit2_r % 1440)} = {r2(total)}h'
+        f'+ B2:{m2t(entry2_c)}-{m2t(exit2_r % 1440)} = {r2(total)}h'
     )
-    if is_late and not is_fer:
-        nota = 'Tardío B1. ' + nota
 
     return {
         'diu_o': diu_o, 'mix_o': mix_o, 'noc_o': noc_o,
         'xd': r2(xd), 'xm': r2(xm), 'xn': r2(xn),
         'status': 'Quebrado' + (' +Extra' if xd + xm + xn > 0 else ''),
         'nota': nota,
-        'entry_red': f'{m2t(entry1_c)}/{m2t(re2)}',
+        'entry_red': f'{m2t(entry1_c)}/{m2t(entry2_c)}',
         'exit_red':  f'{m2t(exit1_r % 1440)}/{m2t(exit2_r % 1440)}',
     }
