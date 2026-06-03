@@ -118,6 +118,9 @@ def calcular(fecha: str, punches_raw: list,
                     f' | Bloque extra: {m2t(entry_pre_r)}-{m2t(exit_pre_r)} '
                     f'= {round(duracion/60, 2)}h'
                 )
+                # Mostrar ambos bloques en entrada/salida redondeada
+                res['entry_red'] = f'{m2t(entry_pre_r)} / {res["entry_red"]}'
+                res['exit_red']  = f'{m2t(exit_pre_r)} / {res["exit_red"]}'
 
         return aplicar_feriado(res, fecha)
 
