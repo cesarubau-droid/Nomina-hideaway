@@ -77,8 +77,11 @@ def calcular(fecha: str, punches_raw: list,
 
         # Detectar bloque extra pre-nocturno en punches_raw
         raw_mins_noc = [t2m(p) for p in punches_raw if p]
-        pre_noc = [m for m in raw_mins_noc
-                   if m > 6 * 60 + 30 and m < NOCTURNO_START - TOLERANCE_MIN]
+
+        # Bloque extra: marcas entre 06:30 y 21:00
+        # Usamos 21:00 como límite superior para excluir el Break In nocturno
+        pre_noc = sorted([m for m in raw_mins_noc
+                          if m > 6 * 60 + 30 and m < 21 * 60])
 
         # Entrada nocturna = la marca más cercana a 22:00
         noc_candidates = [m for m in raw_mins_noc if m >= NOCTURNO_START - TOLERANCE_MIN]
@@ -88,10 +91,10 @@ def calcular(fecha: str, punches_raw: list,
                                  m2t(entry_noc_m),
                                  nota_fer, es_confianza)
 
-        # Sumar bloque extra si existe
+        # Sumar bloque extra si existe (necesita al menos entrada y salida)
         if len(pre_noc) >= 2 and not es_confianza:
-            entry_pre_m = min(pre_noc)
-            exit_pre_m  = max(pre_noc)
+            entry_pre_m = pre_noc[0]   # primera marca del bloque
+            exit_pre_m  = pre_noc[-1]  # última marca del bloque
 
             # Redondear entrada hacia adelante con regla 20/45
             entry_rem = entry_pre_m % 60
