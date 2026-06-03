@@ -23,6 +23,8 @@ from config import TOLERANCE_MIN, LATE_PENALTY, EXTRA_HALF_MIN
 # Turnos: inicio → (fin, ord_h, xd_fija, xm_fija, xn_fija)
 TURNOS = {
     6:  (15 * 60, 8, 1.0, 0.0, 0.0),   # T1: 06-15 → 8h ord + 1xd
+    7:  (15 * 60, 8, 0.0, 0.0, 0.0),   # T6: 07-15 → 8h ord
+    11: (22 * 60, 8, 0.0, 0.0, 0.0),   # T7: 11-22 → 8h ord
     12: (22 * 60, 7, 0.0, 3.0, 0.0),   # T3: 12-22 → 7h ord + 3xm
     14: (22 * 60, 7, 0.0, 1.0, 0.0),   # T4: 14-22 → 7h ord + 1xm
     15: (22 * 60, 7, 0.0, 0.0, 0.0),   # T5: 15-22 → 7h ord
