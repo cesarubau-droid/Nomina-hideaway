@@ -341,9 +341,16 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
 
             # ── SOLO SALIDAS SIN ENTRADA → LIBRE ─────────────────
             # Son salidas del turno nocturno del día anterior
+            # PERO si hay check_ins después de los check_outs → procesar normalmente
             if not check_ins and check_outs:
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
+
+            # ── CHECK OUTS ANTERIORES AL CHECK IN → IGNORARLOS ───
+            # Filtrar check_outs que son anteriores al primer check_in
+            if check_ins and check_outs:
+                first_in = t2m(check_ins[0])
+                check_outs = [t for t in check_outs if t2m(t) > first_in or t2m(t) < 6 * 60]
 
             # ── SIN CHECK IN NI CHECK OUT ─────────────────────────
             if not check_ins and not check_outs:
