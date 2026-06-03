@@ -396,9 +396,11 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
 
             DEPTS_SIN_QUEBRADO = {'SPA', 'CONTABILIDAD', 'SOSTENIBILIDAD',
                                    'RH', 'PROVEEDURIA'}
-            if break_outs and break_ins and check_ins and check_outs and dept not in DEPTS_SIN_QUEBRADO:
-                # Recepción: quebrado excepcional → pasar TODOS los punches a recepcion.calcular
-                if dept == 'RECEPCION':
+
+            # Recepción con Break Out/Break In → quebrado excepcional
+            # No requiere check_out en el mismo día (puede ser nocturno)
+            if break_outs and break_ins and check_ins and dept == 'RECEPCION':
+                if True:
                     todos_rec = sorted(
                         check_ins + check_outs +
                         [t for t, s in day_punches if s in ('Break Out', 'Break In')],
