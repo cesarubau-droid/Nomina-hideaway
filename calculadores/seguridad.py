@@ -9,7 +9,7 @@
 
 from calculador_base import (
     t2m, m2t, r2, split_hours, nearest_shift,
-    round_exit, calc_extra, clean_punches, empty, es_feriado
+    round_exit, calc_extra, calc_early, clean_punches, empty, es_feriado
 )
 from config import (
     DEPT_STARTS, SEG_ACUERDO_STARTS, SEG_SIN_ACUERDO,
@@ -55,7 +55,7 @@ def calcular(fecha: str, punches_raw: list, es_nocturno: bool = False,
         if turno_h in SEG_ACUERDO_STARTS:
             return _con_acuerdo(re_m, nota_fer, turno_h)
         else:
-            return _sin_acuerdo(re_m, exit_m, turno_h, nota_fer, es_confianza)
+            return _sin_acuerdo(re_m, exit_m, turno_h, nota_fer, es_confianza, entry_m_real=entry_m)
 
     # ── TURNO NORMAL ─────────────────────────────────────────
     if len(punches) < 2:
@@ -79,7 +79,7 @@ def calcular(fecha: str, punches_raw: list, es_nocturno: bool = False,
         if exit_m <= entry_count:
             exit_m += 24 * 60
         return _sin_acuerdo(entry_count, exit_m, turno_h, nota_fer,
-                             es_confianza, is_late, re_m, entry_str)
+                             es_confianza, is_late, re_m, entry_str, entry_m)
 
 
 def _con_acuerdo(re_m: int, nota: str, turno_h: int) -> dict:
@@ -102,8 +102,8 @@ def _con_acuerdo(re_m: int, nota: str, turno_h: int) -> dict:
 def _sin_acuerdo(entry_count: int, exit_m: int, turno_h: int,
                  nota_fer: str, es_confianza: bool,
                  is_late: bool = False, re_m: int = None,
-                 entry_str: str = '') -> dict:
-    """8h ordinarias + regla 20/45. Turno 6h tiene 1h extra noc fija."""
+                 entry_str: str = '', entry_m_real: int = None) -> dict:
+    """8h ordinarias + regla 20/45."""
     ord_h     = ORD_HOURS_DEFAULT
     sched_end = entry_count + ord_h * 60
     if exit_m <= entry_count:
@@ -118,14 +118,20 @@ def _sin_acuerdo(entry_count: int, exit_m: int, turno_h: int,
 
     xd = xm = xn = 0.0
 
-    if not es_confianza and over_min >= EXTRA_HALF_MIN:
-        xh = calc_extra(over_min)
-        if xh > 0:
-            xs = sched_end
-            xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
-            xd = r2(xd + xd2)
-            xm = r2(xm + xm2)
-            xn = r2(xn + xn2)
+    if not es_confianza:
+        # Llegada anticipada → extra diurna
+        early_min = max(0, re_m - entry_m_real) if re_m is not None and entry_m_real is not None and not is_late else 0
+        if early_min >= 25:
+            xd = r2(xd + calc_early(early_min))
+
+        if over_min >= EXTRA_HALF_MIN:
+            xh = calc_extra(over_min)
+            if xh > 0:
+                xs = sched_end
+                xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
+                xd = r2(xd + xd2)
+                xm = r2(xm + xm2)
+                xn = r2(xn + xn2)
 
     has_extra  = xd + xm + xn > 0
     late_label = 'Tardío' if is_late else 'OK'
