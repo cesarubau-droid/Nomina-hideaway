@@ -1,19 +1,14 @@
 # ============================================================
-# CALCULADOR SPA — v4.1
+# CALCULADOR SPA — v4.2
 # Turnos:
 #   06:00-14:00 → 8h ordinarias
 #   09:00-17:00 → 8h ordinarias
 #   10:00-18:00 → 8h ordinarias
 #   12:00-19:00 → 7h ordinarias
 #   14:00-21:00 → 7h ordinarias
+# Confianza: todas las horas van como ordinarias, sin extras
 # Regla 20/45 para extras
-# Llegada anticipada: 25min → 0.5h extra diurna
-# Tolerancia: 10min | Siguiente turno si supera tolerancia
-# Sin quebrados ni nocturnos
-# Sin empleados de confianza
 # Feriados: todas las horas se duplican
-# Fix v4.1: detect_turno usa siguiente turno >= entrada
-#           en vez de desempatar por salida (causaba asignaciones incorrectas)
 # ============================================================
 
 from calculador_base import (
@@ -21,29 +16,20 @@ from calculador_base import (
     round_exit, calc_extra, calc_early, clean_punches,
     empty, es_feriado, aplicar_feriado
 )
-from config import TOLERANCE_MIN, EXTRA_HALF_MIN
+from config import TOLERANCE_MIN, LATE_PENALTY, EXTRA_HALF_MIN
 
-# Turnos: inicio → (fin, ord_h)
 TURNOS = {
-    6:  (14 * 60, 8),   # 06:00 → 14:00
-    9:  (17 * 60, 8),   # 09:00 → 17:00
-    10: (18 * 60, 8),   # 10:00 → 18:00
-    12: (19 * 60, 7),   # 12:00 → 19:00
-    14: (21 * 60, 7),   # 14:00 → 21:00
+    6:  (14 * 60, 8),
+    9:  (17 * 60, 8),
+    10: (18 * 60, 8),
+    12: (19 * 60, 7),
+    14: (21 * 60, 7),
 }
 
 STARTS_SORTED = sorted(TURNOS.keys())
 
 
 def detect_turno(entry_m: int) -> tuple:
-    """
-    Detecta el turno según la entrada:
-    1. Dentro de tolerancia (±10min) → ese turno
-    2. Antes del primer turno → anticipada al primero
-    3. Fuera de tolerancia → siguiente turno >= entrada
-    Retorna (turno_h, early_min, late_min).
-    """
-    # 1. Dentro de tolerancia
     for h in STARTS_SORTED:
         turno_m = h * 60
         diff    = entry_m - turno_m
@@ -53,12 +39,10 @@ def detect_turno(entry_m: int) -> tuple:
             else:
                 return h, 0, diff
 
-    # 2. Llegó antes del primer turno → anticipa al primero
     if entry_m < STARTS_SORTED[0] * 60:
         early_min = STARTS_SORTED[0] * 60 - entry_m
         return STARTS_SORTED[0], early_min, 0
 
-    # 3. Fuera de tolerancia → siguiente turno >= entrada
     for h in STARTS_SORTED:
         if h * 60 >= entry_m:
             return h, 0, 0
@@ -67,10 +51,7 @@ def detect_turno(entry_m: int) -> tuple:
     return last_h, 0, entry_m - last_h * 60
 
 
-def calcular(fecha: str, punches_raw: list) -> dict:
-    """
-    Calcula horas para un empleado de Spa.
-    """
+def calcular(fecha: str, punches_raw: list, es_confianza: bool = False) -> dict:
     is_fer, fer_name = es_feriado(fecha)
     nota_fer = f'★ Feriado: {fer_name}' if is_fer else ''
 
@@ -95,7 +76,7 @@ def calcular(fecha: str, punches_raw: list) -> dict:
     sched_end, ord_h = TURNOS.get(turno_h, (21 * 60, 7))
 
     is_late     = late_min > TOLERANCE_MIN
-    entry_count = turno_h * 60 if not is_late else turno_h * 60 + 30
+    entry_count = turno_h * 60 + LATE_PENALTY if is_late else turno_h * 60
 
     if exit_m <= entry_count:
         exit_m += 24 * 60
@@ -104,24 +85,29 @@ def calcular(fecha: str, punches_raw: list) -> dict:
     if exit_rounded <= entry_count:
         exit_rounded += 24 * 60
 
-    total_min  = exit_rounded - entry_count
-    actual_ord = min(total_min, ord_h * 60)
-    d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
     over_min = max(0, exit_rounded - sched_end)
 
-    xd = xm = xn = 0.0
+    # ── CONFIANZA: todas las horas como ordinarias ────────────
+    if es_confianza:
+        actual_ord = exit_rounded - entry_count
+        d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
+        xd = xm = xn = 0.0
+    else:
+        actual_ord = min(exit_rounded - entry_count, ord_h * 60)
+        d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
+        xd = xm = xn = 0.0
 
-    if early_min > 0 and not is_late:
-        xd = r2(xd + calc_early(early_min))
+        if early_min > 0 and not is_late:
+            xd = r2(xd + calc_early(early_min))
 
-    if over_min >= EXTRA_HALF_MIN:
-        xh = calc_extra(over_min)
-        if xh > 0:
-            xs = sched_end
-            xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
-            xd = r2(xd + xd2)
-            xm = r2(xm + xm2)
-            xn = r2(xn + xn2)
+        if over_min >= EXTRA_HALF_MIN:
+            xh = calc_extra(over_min)
+            if xh > 0:
+                xs = sched_end
+                xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
+                xd = r2(xd + xd2)
+                xm = r2(xm + xm2)
+                xn = r2(xn + xn2)
 
     has_extra = xd + xm + xn > 0
     status    = ('OK' if not is_late else 'Tardío') + (' +Extra' if has_extra else '')
