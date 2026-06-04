@@ -160,31 +160,29 @@ def _calcular_turno(fecha, turno_h, entry_m, exit_m,
     if exit_rounded <= entry_count:
         exit_rounded += 24 * 60
 
-    # Ordinarias
-    ord_end = entry_count + ord_h * 60
-    d_o, mx_o, n_o = split_hours(entry_count, ord_end)
+    over_min = max(0, exit_rounded - sched_end)
 
-    # Over = minutos más allá del fin del turno completo (ord + extras fijas)
-    turno_total_end = sched_end  # el turno termina en sched_end
-    over_min = max(0, exit_rounded - turno_total_end)
+    # ── CONFIANZA: todas las horas como ordinarias ────────────
+    if es_confianza:
+        actual_ord = exit_rounded - entry_count
+        d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
+        xd = xm = xn = 0.0
+    else:
+        d_o, mx_o, n_o = split_hours(entry_count, entry_count + ord_h * 60)
+        xd = xd_fija
+        xm = xm_fija
+        xn = xn_fija
 
-    # Extras fijas hardcodeadas
-    xd = xd_fija
-    xm = xm_fija
-    xn = xn_fija
+        if early_min > 0 and not is_late:
+            xd = r2(xd + calc_early(early_min))
 
-    # Extra por llegada anticipada → siempre diurna
-    if early_min > 0 and not is_late and not es_confianza:
-        xd = r2(xd + calc_early(early_min))
-
-    # Extra adicional por salida tardía → split_hours desde sched_end
-    if not es_confianza and over_min >= EXTRA_HALF_MIN:
-        xh = calc_extra(over_min)
-        if xh > 0:
-            xd2, xm2, xn2 = split_hours(sched_end, sched_end + int(xh * 60))
-            xd = r2(xd + xd2)
-            xm = r2(xm + xm2)
-            xn = r2(xn + xn2)
+        if over_min >= EXTRA_HALF_MIN:
+            xh = calc_extra(over_min)
+            if xh > 0:
+                xd2, xm2, xn2 = split_hours(sched_end, sched_end + int(xh * 60))
+                xd = r2(xd + xd2)
+                xm = r2(xm + xm2)
+                xn = r2(xn + xn2)
 
     has_extra  = xd + xm + xn > 0
     status     = ('Tardío' if is_late else 'OK') + (' +Extra' if has_extra else '')
