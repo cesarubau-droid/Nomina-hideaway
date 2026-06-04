@@ -117,8 +117,6 @@ def _sin_acuerdo(entry_count: int, exit_m: int, turno_h: int,
     d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
 
     xd = xm = xn = 0.0
-    if turno_h == 6:
-        xn = 1.0
 
     if not es_confianza and over_min >= EXTRA_HALF_MIN:
         xh = calc_extra(over_min)
