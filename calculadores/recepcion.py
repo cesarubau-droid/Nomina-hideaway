@@ -203,6 +203,36 @@ def calcular(fecha: str, punches_raw: list,
                      entry_red=entry_str_val, exit_red='?')
 
     exit_m = t2m(punches[-1])
+
+    # ── CONFIANZA CON TURNO FLEXIBLE ─────────────────────────
+    # Si es confianza, cuenta desde entrada redondeada hasta
+    # salida redondeada — todo como ordinarias, sin tope ni extras
+    if es_confianza:
+        rem = entry_m % 60
+        if rem < 20:   entry_count = (entry_m // 60) * 60
+        elif rem < 45: entry_count = (entry_m // 60) * 60 + 30
+        else:          entry_count = (entry_m // 60 + 1) * 60
+
+        sched_end = entry_count + 8 * 60  # referencia para round_exit
+        if exit_m <= entry_count:
+            exit_m += 24 * 60
+        exit_rounded = round_exit(exit_m, sched_end)
+        if exit_rounded <= entry_count:
+            exit_rounded += 24 * 60
+
+        actual_ord = exit_rounded - entry_count
+        d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
+        nota = nota_fer if nota_fer else f'Confianza flexible desde {m2t(entry_count)}'
+        res = {
+            'diu_o': r2(d_o), 'mix_o': r2(mx_o), 'noc_o': r2(n_o),
+            'xd': 0.0, 'xm': 0.0, 'xn': 0.0,
+            'status': 'Confianza',
+            'nota': nota,
+            'entry_red': m2t(entry_count),
+            'exit_red':  m2t(exit_rounded % 1440),
+        }
+        return aplicar_feriado(res, fecha)
+
     turno_h, early_min, late_min = detect_turno(entry_m)
     sched_end, ord_h, xd_fija, xm_fija, xn_fija = TURNOS.get(
         turno_h, (22 * 60, 7, 0.0, 0.0, 0.0)
@@ -225,17 +255,16 @@ def calcular(fecha: str, punches_raw: list,
     xm = xm_fija
     xn = xn_fija
 
-    if not es_confianza:
-        if early_min > 0 and not is_late:
-            xd = r2(xd + calc_early(early_min))
-        if over_min >= EXTRA_HALF_MIN:
-            xh = calc_extra(over_min)
-            if xh > 0:
-                xs = sched_end
-                xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
-                xd = r2(xd + xd2)
-                xm = r2(xm + xm2)
-                xn = r2(xn + xn2)
+    if early_min > 0 and not is_late:
+        xd = r2(xd + calc_early(early_min))
+    if over_min >= EXTRA_HALF_MIN:
+        xh = calc_extra(over_min)
+        if xh > 0:
+            xs = sched_end
+            xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
+            xd = r2(xd + xd2)
+            xm = r2(xm + xm2)
+            xn = r2(xn + xn2)
 
     has_extra  = xd + xm + xn > 0
     late_label = 'Tardío' if is_late else 'OK'
