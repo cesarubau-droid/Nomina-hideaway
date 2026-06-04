@@ -88,7 +88,12 @@ def _calcular_turno(re_m: int, entry_count: int, exit_m: int,
 
     total_min  = exit_rounded - entry_count
     over_min   = total_min - ord_h * 60
-    actual_ord = min(total_min, ord_h * 60)
+
+    # Confianza: todas las horas trabajadas son ordinarias, sin extras
+    if es_confianza:
+        actual_ord = total_min
+    else:
+        actual_ord = min(total_min, ord_h * 60)
 
     d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
 
