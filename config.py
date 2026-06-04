@@ -1,6 +1,6 @@
 # ============================================================
 # CONFIGURACIÓN — NÓMINA HOTEL RIO CELESTE HIDEAWAY
-# Versión: 2.1
+# Versión: 2.2
 # ============================================================
 
 # Regla 20/45
@@ -57,12 +57,12 @@ DEPT_STARTS = {
     'SEGURIDAD':         [6, 8, 15, 16, 22, 23],
     'RECEPCION':         [6, 8, 9, 15, 22],
     'RESTAURANTE SALON': [6, 7, 11, 12, 14, 15, 18],
-    'ALIMENTOS COCINA':  [6, 12, 14, 15, 17],
+    'ALIMENTOS COCINA':  [6, 7, 8, 11, 12, 14, 15, 17],
     'AMA DE LLAVES':     [6, 7, 8, 12, 14],
     'SPA':               [6, 9, 10],
-    'MANTENIMIENTO':     [7, 10],
+    'MANTENIMIENTO':     [6, 7, 8, 9, 10],
     'JARDIN':            [6, 7, 8],
-    'PROVEEDURIA':       [7, 10],
+    'PROVEEDURIA':       [6, 7, 8, 10],
     'CONTABILIDAD':      [8],
     'SOSTENIBILIDAD':    [8],
     'RH':                [6, 7, 8],
