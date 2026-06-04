@@ -1,5 +1,5 @@
 # ============================================================
-# CALCULADOR RESTAURANTE SALON — v4.0
+# CALCULADOR RESTAURANTE SALON — v4.1
 # Turnos y reglas fijas:
 #   T1: 06:00-15:00 → 8h ord + 1h extra diurna
 #   T2: 06:00-14:00 / 18:00-22:00 (quebrado) → 8h ord + 4h extra
@@ -8,8 +8,7 @@
 #   T5: 12:00-22:00 → 8h ord + 2h xm
 #   T6: 14:00-22:00 → 8h ord
 #   T7: 15:00-22:00 → 7h ord
-# Regla 20/45 para extras adicionales por salida tardía
-# Llegada anticipada: 25min → 0.5h extra diurna
+# Confianza: todas las horas van como ordinarias, sin extras
 # Feriados: todas las horas se duplican
 # ============================================================
 
@@ -20,45 +19,29 @@ from calculador_base import (
 )
 from config import TOLERANCE_MIN, LATE_PENALTY, EXTRA_HALF_MIN
 
-# Turnos: inicio → (fin, ord_h, xd_fija, xm_fija, xn_fija)
 TURNOS = {
-    6:  (15 * 60, 8, 1.0, 0.0, 0.0),   # T1: 06-15
-    7:  (15 * 60, 8, 0.0, 0.0, 0.0),   # T3: 07-15
-    11: (22 * 60, 8, 0.5, 2.5, 0.0),   # T4: 11-22
-    12: (22 * 60, 8, 0.0, 2.0, 0.0),   # T5: 12-22
-    14: (22 * 60, 8, 0.0, 0.0, 0.0),   # T6: 14-22
-    15: (22 * 60, 7, 0.0, 0.0, 0.0),   # T7: 15-22
+    6:  (15 * 60, 8, 1.0, 0.0, 0.0),
+    7:  (15 * 60, 8, 0.0, 0.0, 0.0),
+    11: (22 * 60, 8, 0.5, 2.5, 0.0),
+    12: (22 * 60, 8, 0.0, 2.0, 0.0),
+    14: (22 * 60, 8, 0.0, 0.0, 0.0),
+    15: (22 * 60, 7, 0.0, 0.0, 0.0),
 }
 
-# Turno quebrado T2
-T2_ENTRY1 = 6 * 60   # 06:00
-T2_EXIT1  = 14 * 60  # 14:00
-T2_ENTRY2 = 18 * 60  # 18:00
-T2_EXIT2  = 22 * 60  # 22:00
-
-# Gap mínimo para turno quebrado: 3h
+T2_ENTRY1 = 6  * 60
+T2_EXIT1  = 14 * 60
+T2_ENTRY2 = 18 * 60
+T2_EXIT2  = 22 * 60
 QUEBRADO_GAP = 180
-
-# Starts para detect_turno
 STARTS_SORTED = sorted(TURNOS.keys())
 
 
 def detect_turno(entry_m: int) -> tuple:
-    """
-    Detecta el turno:
-    1. Dentro de tolerancia (+-10min) → ese turno
-    2. Antes del primer turno → anticipada al primero
-    3. Supero tolerancia → primer turno >= entrada (siguiente turno)
-    Retorna (turno_h, early_min, late_min).
-    """
     for h in STARTS_SORTED:
         turno_m = h * 60
         diff    = entry_m - turno_m
         if -TOLERANCE_MIN <= diff <= TOLERANCE_MIN:
-            if diff <= 0:
-                return h, 0, 0
-            else:
-                return h, 0, diff
+            return h, 0, 0 if diff <= 0 else diff
 
     if entry_m < STARTS_SORTED[0] * 60:
         early_min = STARTS_SORTED[0] * 60 - entry_m
@@ -75,9 +58,6 @@ def detect_turno(entry_m: int) -> tuple:
 def calcular(fecha: str, punches_raw: list,
              es_nocturno: bool = False, exit_str: str = None,
              es_confianza: bool = False) -> dict:
-    """
-    Calcula horas para un empleado de Restaurante Salón.
-    """
     is_fer, fer_name = es_feriado(fecha)
     nota_fer = f'★ Feriado: {fer_name}' if is_fer else ''
 
@@ -92,16 +72,13 @@ def calcular(fecha: str, punches_raw: list,
     entry_str = punches[0]
     entry_m   = t2m(entry_str)
 
-    # ── TURNO NOCTURNO CRUZADO ───────────────────────────────
     if es_nocturno and exit_str:
         exit_m = t2m(exit_str)
         if exit_m <= entry_m:
             exit_m += 24 * 60
         turno_h, early_min, late_min = detect_turno(entry_m)
-        res = _calcular_turno(
-            fecha, turno_h, entry_m, exit_m,
-            early_min, late_min, entry_str, es_confianza
-        )
+        res = _calcular_turno(fecha, turno_h, entry_m, exit_m,
+                               early_min, late_min, entry_str, es_confianza)
         return aplicar_feriado(res, fecha)
 
     if len(punches) < 2:
@@ -109,7 +86,6 @@ def calcular(fecha: str, punches_raw: list,
                      f'Entrada: {entry_str}',
                      entry_red=entry_str, exit_red='?')
 
-    # ── DETECCIÓN TURNO QUEBRADO ─────────────────────────────
     punch_mins = [t2m(p) for p in punches]
     is_split, split_idx = _detect_split(punch_mins)
 
@@ -118,22 +94,14 @@ def calcular(fecha: str, punches_raw: list,
                                  split_idx, es_confianza)
         return aplicar_feriado(res, fecha)
 
-    # ── TURNO NORMAL ─────────────────────────────────────────
     exit_m = t2m(punches[-1])
     turno_h, early_min, late_min = detect_turno(entry_m)
-    res = _calcular_turno(
-        fecha, turno_h, entry_m, exit_m,
-        early_min, late_min, entry_str, es_confianza
-    )
+    res = _calcular_turno(fecha, turno_h, entry_m, exit_m,
+                           early_min, late_min, entry_str, es_confianza)
     return aplicar_feriado(res, fecha)
 
 
 def _detect_split(punch_mins: list) -> tuple:
-    """
-    4 punches → quebrado si gap entre idx 1 y 2 >= 3h30min
-    3 punches → quebrado si gap más grande >= 3h30min
-    2 punches → normal
-    """
     n = len(punch_mins)
     if n == 4:
         gap = punch_mins[2] - punch_mins[1]
@@ -150,16 +118,7 @@ def _detect_split(punch_mins: list) -> tuple:
 def _calcular_turno(fecha, turno_h, entry_m, exit_m,
                     early_min, late_min, entry_str,
                     es_confianza) -> dict:
-    """
-    Calcula turno normal con reglas fijas por turno.
-    - Las extras fijas (xd_fija, xm_fija, xn_fija) son parte del turno
-    - over_min se calcula desde entry_count + ord_h (fin ordinario)
-    - sched_end se usa solo para round_exit
-    """
-    turno_data = TURNOS.get(turno_h)
-    if not turno_data:
-        turno_data = (22 * 60, 8, 0.0, 0.0, 0.0)
-
+    turno_data = TURNOS.get(turno_h, (22 * 60, 8, 0.0, 0.0, 0.0))
     sched_end, ord_h, xd_fija, xm_fija, xn_fija = turno_data
 
     is_late     = late_min > TOLERANCE_MIN
@@ -168,38 +127,34 @@ def _calcular_turno(fecha, turno_h, entry_m, exit_m,
     if exit_m <= entry_count:
         exit_m += 24 * 60
 
-    # Redondear salida contra el fin del turno completo (incluyendo extras fijas)
     exit_rounded = round_exit(exit_m, sched_end)
     if exit_rounded <= entry_count:
         exit_rounded += 24 * 60
 
-    # Ordinarias: desde entry_count hasta entry_count + ord_h
-    ord_end    = entry_count + ord_h * 60
-    actual_ord = ord_h * 60
-    d_o, mx_o, n_o = split_hours(entry_count, ord_end)
-
-    # Over = minutos más allá del fin del turno completo (sched_end)
-    # Si exit_rounded > sched_end → salió más tarde que el turno completo
     over_min = max(0, exit_rounded - sched_end)
 
-    # Extras fijas del turno
-    xd = xd_fija
-    xm = xm_fija
-    xn = xn_fija
+    # ── CONFIANZA: todas las horas como ordinarias ────────────
+    if es_confianza:
+        actual_ord = exit_rounded - entry_count
+        d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
+        xd = xm = xn = 0.0
+    else:
+        d_o, mx_o, n_o = split_hours(entry_count, entry_count + ord_h * 60)
+        xd = xd_fija
+        xm = xm_fija
+        xn = xn_fija
 
-    # Extra por llegada anticipada (diurna, solo si no tardío ni confianza)
-    if early_min > 0 and not is_late and not es_confianza:
-        xd = r2(xd + calc_early(early_min))
+        if early_min > 0 and not is_late:
+            xd = r2(xd + calc_early(early_min))
 
-    # Extra adicional por salida más allá del turno completo
-    if not es_confianza and over_min >= EXTRA_HALF_MIN:
-        xh = calc_extra(over_min)
-        if xh > 0:
-            xs = sched_end
-            xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
-            xd = r2(xd + xd2)
-            xm = r2(xm + xm2)
-            xn = r2(xn + xn2)
+        if over_min >= EXTRA_HALF_MIN:
+            xh = calc_extra(over_min)
+            if xh > 0:
+                xs = sched_end
+                xd2, xm2, xn2 = split_hours(xs, xs + int(xh * 60))
+                xd = r2(xd + xd2)
+                xm = r2(xm + xm2)
+                xn = r2(xn + xn2)
 
     has_extra  = xd + xm + xn > 0
     late_label = 'Tardío' if is_late else 'OK'
@@ -224,8 +179,6 @@ def _calcular_turno(fecha, turno_h, entry_m, exit_m,
 
 def _calcular_quebrado(fecha, punches, punch_mins,
                        split_idx, es_confianza) -> dict:
-    """Calcula turno quebrado T2: 06:00-14:00 / 18:00-22:00."""
-
     b1_mins = punch_mins[:split_idx + 1]
     b2_mins = punch_mins[split_idx + 1:]
 
@@ -234,7 +187,6 @@ def _calcular_quebrado(fecha, punches, punch_mins,
     entry2_m = b2_mins[0]
     exit2_m  = b2_mins[-1]
 
-    # B1: turno 06:00-14:00
     re1      = T2_ENTRY1
     diff1    = entry1_m - re1
     is_late  = diff1 > TOLERANCE_MIN
@@ -252,55 +204,53 @@ def _calcular_quebrado(fecha, punches, punch_mins,
     else:
         exit1_r = (exit1_m // 60) * 60
 
-    # B2: turno 18:00-22:00
     re2     = T2_ENTRY2
     if exit2_m <= re2:
         exit2_m += 24 * 60
     exit2_r = round_exit(exit2_m, T2_EXIT2)
 
-    # Horas
     h1 = (exit1_r - entry1_c) / 60
     h2 = (exit2_r - re2) / 60
     if h1 < 0: h1 += 24
     if h2 < 0: h2 += 24
+    total = h1 + h2
+    ord_h = 8
 
-    total    = h1 + h2
-    ord_h    = 8
-    over_min = round((total - ord_h) * 60)
+    # ── CONFIANZA: todas las horas como ordinarias ────────────
+    if es_confianza:
+        d1, mx1, n1 = split_hours(entry1_c, exit1_r)
+        d2, mx2, n2 = split_hours(re2, exit2_r)
+        diu_o = r2(d1 + d2)
+        mix_o = r2(mx1 + mx2)
+        noc_o = r2(n1 + n2)
+        xd = xm = xn = 0.0
+    else:
+        over_min = round((total - ord_h) * 60)
+        ord_b1 = min(h1, ord_h)
+        ord_b2 = min(h2, max(0.0, ord_h - ord_b1))
 
-    ord_b1 = min(h1, ord_h)
-    ord_b2 = min(h2, max(0.0, ord_h - ord_b1))
+        d1, mx1, n1 = split_hours(entry1_c, entry1_c + int(ord_b1 * 60))
+        d2, mx2, n2 = split_hours(re2,      re2       + int(ord_b2 * 60))
+        diu_o = r2(d1 + d2)
+        mix_o = r2(mx1 + mx2)
+        noc_o = r2(n1 + n2)
 
-    d1, mx1, n1 = split_hours(entry1_c, entry1_c + int(ord_b1 * 60))
-    d2, mx2, n2 = split_hours(re2,      re2       + int(ord_b2 * 60))
+        xs_start = re2 + int(ord_b2 * 60)
+        xd, xm, xn = split_hours(xs_start, xs_start + 4 * 60)
 
-    diu_o = r2(d1 + d2)
-    mix_o = r2(mx1 + mx2)
-    noc_o = r2(n1 + n2)
+        if early1 > 0:
+            xd = r2(xd + calc_early(early1))
 
-    # Extras fijas T2: 4h (clasificadas por hora)
-    xs_start = re2 + int(ord_b2 * 60)
-    xd_fija, xm_fija, xn_fija = split_hours(xs_start, xs_start + 4 * 60)
-
-    xd = xd_fija
-    xm = xm_fija
-    xn = xn_fija
-
-    # Extra por llegada anticipada B1
-    if early1 > 0 and not es_confianza:
-        xd = r2(xd + calc_early(early1))
-
-    # Extra adicional por salida tardía (regla 20/45)
-    if not es_confianza and over_min > 0:
-        extra_adicional = over_min - 4 * 60  # ya contamos 4h fijas
-        if extra_adicional >= EXTRA_HALF_MIN:
-            xh = calc_extra(extra_adicional)
-            if xh > 0:
-                xs2 = xs_start + 4 * 60
-                xd2, xm2, xn2 = split_hours(xs2, xs2 + int(xh * 60))
-                xd = r2(xd + xd2)
-                xm = r2(xm + xm2)
-                xn = r2(xn + xn2)
+        if over_min > 0:
+            extra_adicional = over_min - 4 * 60
+            if extra_adicional >= EXTRA_HALF_MIN:
+                xh = calc_extra(extra_adicional)
+                if xh > 0:
+                    xs2 = xs_start + 4 * 60
+                    xd2, xm2, xn2 = split_hours(xs2, xs2 + int(xh * 60))
+                    xd = r2(xd + xd2)
+                    xm = r2(xm + xm2)
+                    xn = r2(xn + xn2)
 
     is_fer, fer_name = es_feriado(fecha)
     nota = f'★ Feriado: {fer_name}' if is_fer else (
