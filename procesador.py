@@ -351,8 +351,8 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
             # de las 06:00 → ese check_out pertenece al turno anterior, ignorarlo
             if check_ins and check_outs:
                 first_in_m = t2m(check_ins[0])
-                if first_in_m >= 6 * 60:  # hay check_in en horario diurno
-                    check_outs = [t for t in check_outs if t2m(t) > 6 * 60]
+                if first_in_m >= 6 * 60 + 30:  # hay check_in después de las 06:30
+                    check_outs = [t for t in check_outs if t2m(t) > 6 * 60 + 30]
 
             # ── SIN CHECK IN NI CHECK OUT ─────────────────────────
             if not check_ins and not check_outs:
