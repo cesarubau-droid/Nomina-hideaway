@@ -352,7 +352,7 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
             if check_ins and check_outs:
                 first_in_m = t2m(check_ins[0])
                 if first_in_m >= 6 * 60:  # hay check_in en horario diurno
-                    check_outs = [t for t in check_outs if t2m(t) >= 6 * 60]
+                    check_outs = [t for t in check_outs if t2m(t) > 6 * 60]
 
             # ── SIN CHECK IN NI CHECK OUT ─────────────────────────
             if not check_ins and not check_outs:
