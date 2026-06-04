@@ -122,54 +122,6 @@ def calcular(fecha: str, punches_raw: list,
     exit_m = t2m(punches[-1])
     turno_h, early_min, late_min = detect_turno(entry_m)
 
-    # ── TURNO FLEXIBLE ───────────────────────────────────────
-    # Si la entrada no cae cerca de ningún turno conocido
-    # → 8h ord desde entrada redondeada, sin extras fijas
-    es_flexible = False
-    for h in STARTS_SORTED:
-        diff = abs(entry_m - h * 60)
-        if diff <= 60:
-            es_flexible = False
-            break
-        es_flexible = True
-
-    if es_flexible and entry_m >= STARTS_SORTED[0] * 60:
-        rem = entry_m % 60
-        if rem < 20:   entry_count = (entry_m // 60) * 60
-        elif rem < 45: entry_count = (entry_m // 60) * 60 + 30
-        else:          entry_count = (entry_m // 60 + 1) * 60
-        sched_end = entry_count + 8 * 60
-
-        if exit_m <= entry_count:
-            exit_m += 24 * 60
-        exit_rounded = round_exit(exit_m, sched_end)
-        if exit_rounded <= entry_count:
-            exit_rounded += 24 * 60
-
-        actual_ord = min(exit_rounded - entry_count, 8 * 60)
-        d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
-        over_min = max(0, exit_rounded - sched_end)
-
-        xd = xm = xn = 0.0
-        if not es_confianza and over_min >= EXTRA_HALF_MIN:
-            xh = calc_extra(over_min)
-            if xh > 0:
-                xd2, xm2, xn2 = split_hours(sched_end, sched_end + int(xh * 60))
-                xd = r2(xd + xd2)
-                xm = r2(xm + xm2)
-                xn = r2(xn + xn2)
-
-        nota = nota_fer if nota_fer else f'Turno flexible desde {m2t(entry_count)}'
-        res = {
-            'diu_o': r2(d_o), 'mix_o': r2(mx_o), 'noc_o': r2(n_o),
-            'xd': r2(xd), 'xm': r2(xm), 'xn': r2(xn),
-            'status': 'Flexible' + (' +Extra' if xd+xm+xn > 0 else ''),
-            'nota': nota,
-            'entry_red': m2t(entry_count),
-            'exit_red':  m2t(exit_rounded % 1440),
-        }
-        return aplicar_feriado(res, fecha)
-
     res = _calcular_turno(
         fecha, turno_h, entry_m, exit_m,
         early_min, late_min, entry_str, es_confianza
