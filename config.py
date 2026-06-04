@@ -69,8 +69,8 @@ DEPT_STARTS = {
 }
 
 # Seguridad: turnos con y sin acuerdo especial
-SEG_ACUERDO_STARTS = [15, 16, 22, 23]  # 6h ord + 1h extra noc fija
-SEG_SIN_ACUERDO    = [6, 8]            # 8h ord + regla 20/45
+SEG_ACUERDO_STARTS = [16, 22, 23]  # 6h ord noc + 1h extra noc fija
+SEG_SIN_ACUERDO    = [6, 8, 15]   # 8h ord + regla 20/45
 
 # Recepción nocturno
 REC_NOCTURNO_START = 22  # 6h ord + 2h extra noc fijas
