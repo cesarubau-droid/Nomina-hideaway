@@ -101,10 +101,8 @@ def leer_biotime(biotime_path):
     ), errors='coerce').fillna(0)
     df['Employee_ID'] = pd.to_numeric(df['Employee_ID'], errors='coerce')
 
-    # Inferir Employee_ID por nombre cuando está vacío (filas agregadas manualmente por Andry)
-    # Usa First_Name + Last_Name si existe, si no solo First_Name
     nombre_a_eid = {}
-    nombre_fn_a_eid = {}  # fallback solo por First_Name
+    nombre_fn_a_eid = {}
     for _, r in df[df['Employee_ID'].notna()].iterrows():
         fn = str(r['First_Name']).strip()
         ln = str(r['Last_Name']).strip() if pd.notna(r['Last_Name']) else ''
@@ -120,7 +118,6 @@ def leer_biotime(biotime_path):
         fn = str(row['First_Name']).strip()
         ln = str(row['Last_Name']).strip() if pd.notna(row['Last_Name']) else ''
         nombre_completo = (fn + ' ' + ln).strip().lower()
-        # Primero intenta nombre completo, luego solo First_Name como fallback
         if nombre_completo in nombre_a_eid:
             return nombre_a_eid[nombre_completo]
         return nombre_fn_a_eid.get(fn.lower(), float('nan'))
@@ -175,7 +172,8 @@ def make_libre(eid, first, last, dept, tipo, fecha_str):
 # ── ENRUTADOR ────────────────────────────────────────────────
 
 def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
-                       tipo, is_conf, es_nocturno=False, exit_str=None):
+                       tipo, is_conf, es_nocturno=False, exit_str=None,
+                       eid=None):
     """
     Llama al calculador correcto según el departamento.
 
@@ -186,7 +184,7 @@ def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
         return seguridad.calcular(
             fecha_str, punches_check,
             es_nocturno=es_nocturno, exit_str=exit_str,
-            es_confianza=is_conf
+            es_confianza=is_conf, eid=eid
         )
 
     if dept == 'RECEPCION':
@@ -203,7 +201,6 @@ def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
             es_confianza=is_conf
         )
 
-    # ── ALIMENTOS COCINA ─────────────────────────────────────
     if dept == 'ALIMENTOS COCINA':
         return cocina.calcular(
             fecha_str, punches_todos,
@@ -241,7 +238,6 @@ def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
             es_nocturno=es_nocturno, exit_str=exit_str
         )
 
-    # Estándar: Spa, Mantenimiento, RH, Proveeduría
     return estandar.calcular(
         fecha_str, punches_check, dept,
         es_nocturno=es_nocturno, exit_str=exit_str,
@@ -258,9 +254,8 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
     fi_date = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
     ff_date = datetime.strptime(fecha_fin,    '%Y-%m-%d').date()
 
-    # Construir estructura de punches por (eid, date)
     emp_info = {}
-    punches_map = {}  # (eid, date) → lista de (time, state)
+    punches_map = {}
 
     for _, row in df.iterrows():
         eid = row['Employee_ID']
@@ -270,7 +265,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
         date  = row['Date'].date()
         time  = row['Time']
         state = str(row['Punch_State']).strip()
-        # Normalizar variantes de Punch_State escritas por Andry manualmente
         state_map = {
             'check in':   'Check In',
             'check out':  'Check Out',
@@ -291,7 +285,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
         punches_map.setdefault(key, [])
         punches_map[key].append((time, state))
 
-    # Generar lista de fechas del período
     all_dates = []
     d = fi_date
     while d <= ff_date:
@@ -319,12 +312,10 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
             fecha_str   = d.strftime('%Y-%m-%d')
             day_punches = punches_map.get((eid, d), [])
 
-            # ── SIN MARCACIONES → LIBRE ───────────────────────────
             if not day_punches:
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
 
-            # ── SEPARAR TIPOS DE PUNCH ────────────────────────────
             check_ins  = sorted(
                 [t for t, s in day_punches if s in CHECK_IN_STATES],
                 key=lambda x: t2m(x)
@@ -333,36 +324,25 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 [t for t, s in day_punches if s in CHECK_OUT_STATES],
                 key=lambda x: t2m(x)
             )
-            # Todas las marcas ordenadas (para quebrados)
             todos = sorted(
                 [t for t, s in day_punches],
                 key=lambda x: t2m(x)
             )
 
-            # ── SOLO SALIDAS SIN ENTRADA → LIBRE ─────────────────
-            # Son salidas del turno nocturno del día anterior
-            # PERO si hay check_ins después de los check_outs → procesar normalmente
             if not check_ins and check_outs:
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
 
-            # ── CHECK OUTS ANTERIORES AL CHECK IN → IGNORARLOS ───
-            # Si hay un check_out antes de las 06:00 y un check_in después
-            # de las 06:00 → ese check_out pertenece al turno anterior, ignorarlo
             if check_ins and check_outs:
                 first_in_m = t2m(check_ins[0])
-                if first_in_m >= 6 * 60 + 30:  # hay check_in después de las 06:30
+                if first_in_m >= 6 * 60 + 30:
                     check_outs = [t for t in check_outs if t2m(t) > 6 * 60 + 30]
 
-            # ── SIN CHECK IN NI CHECK OUT ─────────────────────────
             if not check_ins and not check_outs:
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
 
-            # ── DEPARTAMENTOS QUEBRADOS ───────────────────────────
-            # Pasan TODAS las marcas al calculador
             if dept in SPLIT_DEPTS:
-                # Si no hay check out hoy → buscar en día siguiente
                 if not check_outs:
                     next_day = d + timedelta(days=1)
                     next_punches = punches_map.get((eid, next_day), [])
@@ -374,7 +354,7 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                         todos_ext = todos + [next_outs[0]]
                         res = calcular_resultado(
                             dept, fecha_str, check_ins, todos_ext,
-                            tipo, is_conf
+                            tipo, is_conf, eid=eid
                         )
                         records.append(make_record(
                             eid, first, last, dept, tipo, fecha_str,
@@ -391,7 +371,7 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 else:
                     res = calcular_resultado(
                         dept, fecha_str, check_ins, todos,
-                        tipo, is_conf
+                        tipo, is_conf, eid=eid
                     )
                     records.append(make_record(
                         eid, first, last, dept, tipo, fecha_str,
@@ -399,26 +379,20 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                     ))
                 continue
 
-            # ── RESTO DE DEPARTAMENTOS ────────────────────────────
             break_outs = [t for t, s in day_punches if s == 'Break Out']
             break_ins  = [t for t, s in day_punches if s == 'Break In']
 
             DEPTS_SIN_QUEBRADO = {'SPA', 'CONTABILIDAD', 'SOSTENIBILIDAD',
                                    'RH', 'PROVEEDURIA'}
 
-            # Recepción con Break Out/Break In → quebrado excepcional
-            # No requiere check_out en el mismo día (puede ser nocturno)
             if break_outs and break_ins and check_ins and dept == 'RECEPCION':
-                entry_principal = t2m(check_ins[-1])  # última entrada del día
-                # Solo los check_outs DESPUÉS de la entrada principal
+                entry_principal = t2m(check_ins[-1])
                 outs_post = [t for t in check_outs if t2m(t) > entry_principal]
-                # Punches del bloque: entrada + breaks (sin check_outs anteriores)
                 todos_rec = sorted(
                     check_ins +
                     [t for t, s in day_punches if s in ('Break Out', 'Break In')],
                     key=lambda x: t2m(x)
                 )
-                # Buscar salida del día siguiente
                 next_day = d + timedelta(days=1)
                 next_punches = punches_map.get((eid, next_day), [])
                 next_outs = sorted(
@@ -470,7 +444,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 ))
                 continue
 
-            # Procesar pares Check In → Check Out normales
             salidas_usadas = set()
             turnos_dia     = []
 
@@ -508,7 +481,8 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                             dept, fecha_str,
                             [entry_t], todos,
                             tipo, is_conf,
-                            es_nocturno=True, exit_str=exit_t
+                            es_nocturno=True, exit_str=exit_t,
+                            eid=eid
                         )
                         records.append(make_record(
                             eid, first, last, dept, tipo,
@@ -529,7 +503,8 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                         [entry_t, exit_t], todos,
                         tipo, is_conf,
                         es_nocturno=es_noc,
-                        exit_str=exit_t if es_noc else None
+                        exit_str=exit_t if es_noc else None,
+                        eid=eid
                     )
                     records.append(make_record(
                         eid, first, last, dept, tipo,
@@ -539,19 +514,9 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
     return pd.DataFrame(records)
 
 
-
-
 # ── VALIDADOR DE FECHAS ──────────────────────────────────────
 
 def validar_fechas(biotime_path: str, fecha_inicio: str, fecha_fin: str) -> dict:
-    """
-    Verifica que las fechas ingresadas coincidan con los datos del BioTime.
-    Retorna un dict con:
-      - ok: True si todo está bien
-      - biotime_inicio: primera fecha en el BioTime
-      - biotime_fin: última fecha en el BioTime
-      - advertencia: mensaje si hay discrepancia
-    """
     df = pd.read_excel(biotime_path, header=None, skiprows=1)
     df.columns = [
         'Employee_ID', 'First_Name', 'Last_Name', 'Nick_Name', 'Gender',
@@ -572,11 +537,8 @@ def validar_fechas(biotime_path: str, fecha_inicio: str, fecha_fin: str) -> dict
     advertencia      = None
     sin_interseccion = False
 
-    # Escenario B: sin intersección — fechas completamente fuera del BioTime
     if ff < bt_inicio or fi > bt_fin:
         sin_interseccion = True
-
-    # Escenario A: intersección parcial — advertencia pero procesa
     elif fi < bt_inicio or ff > bt_fin:
         advertencia = (
             f"Las fechas ingresadas ({fecha_inicio} al {fecha_fin}) "
@@ -596,11 +558,6 @@ def validar_fechas(biotime_path: str, fecha_inicio: str, fecha_fin: str) -> dict
 # ── VALIDADOR DE IDs ─────────────────────────────────────────
 
 def validar_ids(biotime_path: str) -> list:
-    """
-    Lee el archivo de BioTime y retorna una lista de nombres
-    que no tienen Employee_ID. Si la lista está vacía, el archivo
-    está listo para procesar.
-    """
     df = pd.read_excel(biotime_path, header=None, skiprows=1)
     df.columns = [
         'Employee_ID', 'First_Name', 'Last_Name', 'Nick_Name', 'Gender',
