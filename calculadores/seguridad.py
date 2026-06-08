@@ -103,6 +103,7 @@ def calcular(fecha: str, punches_raw: list, es_nocturno: bool = False,
 def _lizanias(entry_m: int, exit_m: int, nota_fer: str) -> dict:
     """
     Lizanias (ID 48) — jornada flexible Art. 135-138.
+    Redondeo entrada/salida con regla 20/45.
     Ordinarias = min(real, límite de jornada).
     Extras = lo que sobra, clasificadas con split_hours.
     Si trabajó menos del límite, paga lo real.
@@ -111,10 +112,24 @@ def _lizanias(entry_m: int, exit_m: int, nota_fer: str) -> dict:
     if exit_m <= entry_m:
         exit_m += 24 * 60
 
-    total_min = exit_m - entry_m
+    # ── REDONDEO ENTRADA con regla 20/45 ─────────────────────
+    rem = entry_m % 60
+    if rem < 20:   entry_r = (entry_m // 60) * 60
+    elif rem < 45: entry_r = (entry_m // 60) * 60 + 30
+    else:          entry_r = (entry_m // 60 + 1) * 60
 
-    # Salida normalizada al rango 0-1439 para clasificar jornada
-    exit_norm = exit_m % 1440
+    # ── REDONDEO SALIDA con round_exit ───────────────────────
+    sched_ref = entry_r + 8 * 60  # referencia para round_exit
+    if exit_m <= entry_r:
+        exit_m += 24 * 60
+    exit_r = round_exit(exit_m, sched_ref)
+    if exit_r <= entry_r:
+        exit_r += 24 * 60
+
+    total_min = exit_r - entry_r
+
+    # Salida normalizada para clasificar jornada
+    exit_norm = exit_r % 1440
 
     LIMITE_MIXTA = 19 * 60       # 19:00
     LIMITE_NOC   = 22 * 60 + 30  # 22:30
@@ -133,13 +148,13 @@ def _lizanias(entry_m: int, exit_m: int, nota_fer: str) -> dict:
     ord_min  = min(total_min, limite_min)
     over_min = total_min - ord_min
 
-    d_o, mx_o, n_o = split_hours(entry_m, entry_m + ord_min)
+    d_o, mx_o, n_o = split_hours(entry_r, entry_r + ord_min)
 
     xd = xm = xn = 0.0
     if over_min >= EXTRA_HALF_MIN:
         xh = calc_extra(over_min)
         if xh > 0:
-            xs = entry_m + ord_min
+            xs = entry_r + ord_min
             xd, xm, xn = split_hours(xs, xs + int(xh * 60))
 
     nota = nota_fer if nota_fer else f'Lizanias flexible — {jornada}'
@@ -149,8 +164,8 @@ def _lizanias(entry_m: int, exit_m: int, nota_fer: str) -> dict:
         'xd': r2(xd), 'xm': r2(xm), 'xn': r2(xn),
         'status': f'Lizanias {jornada}',
         'nota': nota,
-        'entry_red': m2t(entry_m),
-        'exit_red':  m2t(exit_m % 1440),
+        'entry_red': m2t(entry_r),
+        'exit_red':  m2t(exit_r % 1440),
     }
 
 
