@@ -1,9 +1,12 @@
 # ============================================================
-# CALCULADOR SEGURIDAD — v4.1
+# CALCULADOR SEGURIDAD — v4.2
 # Reglas:
 #   Con Acuerdo (16, 22, 23h): 6h ord noc + 1h extra noc fija
 #   Sin Acuerdo (6, 8, 15h): 8h ord + regla 20/45
-#   Turno 6h sin acuerdo: 8h ord + 1h extra noc fija
+#   Lizanias (ID 48): jornada flexible Art. 135-138
+#     - Sale antes 19:00  → diurna  → límite 8h
+#     - Sale 19:00-22:30  → mixta   → límite 7h
+#     - Sale después 22:30 → nocturna → límite 6h
 #   Confianza: nunca extras
 # ============================================================
 
@@ -19,6 +22,8 @@ from config import (
 DEPT   = 'SEGURIDAD'
 STARTS = DEPT_STARTS[DEPT]
 
+EID_LIZANIAS = 48
+
 # Ordinarias hardcodeadas por turno con acuerdo (todo nocturno)
 # turno_h → (diu_o, mix_o, noc_o)
 ACUERDO_ORD = {
@@ -29,7 +34,8 @@ ACUERDO_ORD = {
 
 
 def calcular(fecha: str, punches_raw: list, es_nocturno: bool = False,
-             exit_str: str = None, es_confianza: bool = False) -> dict:
+             exit_str: str = None, es_confianza: bool = False,
+             eid: int = None) -> dict:
     is_fer, fer_name = es_feriado(fecha)
     nota_fer = f'★ Feriado: {fer_name}' if is_fer else ''
 
@@ -43,6 +49,18 @@ def calcular(fecha: str, punches_raw: list, es_nocturno: bool = False,
 
     entry_str = punches[0]
     entry_m   = t2m(entry_str)
+
+    # ── LIZANIAS (ID 48) — jornada flexible especial ─────────
+    if eid == EID_LIZANIAS:
+        if es_nocturno and exit_str:
+            exit_m = t2m(exit_str)
+        elif len(punches) >= 2:
+            exit_m = t2m(punches[-1])
+        else:
+            return empty('Sin salida — Andry ajusta',
+                         f'Entrada: {entry_str}',
+                         entry_red=entry_str, exit_red='?')
+        return _lizanias(entry_m, exit_m, nota_fer)
 
     # ── TURNO NOCTURNO CRUZADO ───────────────────────────────
     if es_nocturno and exit_str:
@@ -82,9 +100,62 @@ def calcular(fecha: str, punches_raw: list, es_nocturno: bool = False,
                              es_confianza, is_late, re_m, entry_str, entry_m)
 
 
+def _lizanias(entry_m: int, exit_m: int, nota_fer: str) -> dict:
+    """
+    Lizanias (ID 48) — jornada flexible Art. 135-138.
+    Ordinarias = min(real, límite de jornada).
+    Extras = lo que sobra, clasificadas con split_hours.
+    Si trabajó menos del límite, paga lo real.
+    """
+    # Ajuste overnight
+    if exit_m <= entry_m:
+        exit_m += 24 * 60
+
+    total_min = exit_m - entry_m
+
+    # Salida normalizada al rango 0-1439 para clasificar jornada
+    exit_norm = exit_m % 1440
+
+    LIMITE_MIXTA = 19 * 60       # 19:00
+    LIMITE_NOC   = 22 * 60 + 30  # 22:30
+
+    # exit_norm == 0 significa medianoche exacta → nocturna
+    if exit_norm == 0 or exit_norm > LIMITE_NOC:
+        jornada    = 'Nocturna'
+        limite_min = 6 * 60
+    elif exit_norm > LIMITE_MIXTA:
+        jornada    = 'Mixta'
+        limite_min = 7 * 60
+    else:
+        jornada    = 'Diurna'
+        limite_min = 8 * 60
+
+    ord_min  = min(total_min, limite_min)
+    over_min = total_min - ord_min
+
+    d_o, mx_o, n_o = split_hours(entry_m, entry_m + ord_min)
+
+    xd = xm = xn = 0.0
+    if over_min >= EXTRA_HALF_MIN:
+        xh = calc_extra(over_min)
+        if xh > 0:
+            xs = entry_m + ord_min
+            xd, xm, xn = split_hours(xs, xs + int(xh * 60))
+
+    nota = nota_fer if nota_fer else f'Lizanias flexible — {jornada}'
+
+    return {
+        'diu_o': r2(d_o), 'mix_o': r2(mx_o), 'noc_o': r2(n_o),
+        'xd': r2(xd), 'xm': r2(xm), 'xn': r2(xn),
+        'status': f'Lizanias {jornada}',
+        'nota': nota,
+        'entry_red': m2t(entry_m),
+        'exit_red':  m2t(exit_m % 1440),
+    }
+
+
 def _con_acuerdo(re_m: int, nota: str, turno_h: int) -> dict:
     """6h ordinarias nocturnas + 1h extra nocturna fija."""
-    # Ordinarias hardcodeadas como nocturnas
     d_o, mx_o, n_o = ACUERDO_ORD.get(turno_h, (0.0, 0.0, 6.0))
 
     if not nota:
@@ -119,7 +190,6 @@ def _sin_acuerdo(entry_count: int, exit_m: int, turno_h: int,
     xd = xm = xn = 0.0
 
     if not es_confianza:
-        # Llegada anticipada → extra diurna
         early_min = max(0, re_m - entry_m_real) if re_m is not None and entry_m_real is not None and not is_late else 0
         if early_min >= 25:
             xd = r2(xd + calc_early(early_min))
