@@ -1,5 +1,5 @@
 # ============================================================
-# CALCULADOR ALIMENTOS COCINA — v1.2
+# CALCULADOR ALIMENTOS COCINA — v1.3
 # Turnos y reglas fijas (validadas con Andry):
 #   T1: 06:00-15:00 → 8h ord + 1h xd fija
 #   T2: 06:00-12:00 / 17:00-22:00 (quebrado) → 7h ord + 4h xm fija
@@ -10,6 +10,7 @@
 #   T1 → xd | T2,T3,T4 → xm
 # Salida tardía adicional → split_hours desde fin del turno
 # Llegada anticipada → xd (regla 25min)
+# Quebrado: corte diurna/mixta en 19:00 (no 19:30)
 # Feriados: todas las horas se duplican
 # ============================================================
 
@@ -32,12 +33,12 @@ TURNOS = {
 }
 
 # Turno quebrado T2
-T2_ENTRY1  = 6  * 60   # 06:00
-T2_EXIT1   = 12 * 60   # 12:00
-T2_ENTRY2  = 17 * 60   # 17:00
-T2_EXIT2   = 22 * 60   # 22:00
+T2_ENTRY1  = 6  * 60
+T2_EXIT1   = 12 * 60
+T2_ENTRY2  = 17 * 60
+T2_EXIT2   = 22 * 60
 T2_ORD_H   = 7
-T2_XM_FIJA = 4.0       # 4h extra mixtas fijas
+T2_XM_FIJA = 4.0
 
 # Gap mínimo para detectar turno quebrado: 3h
 QUEBRADO_GAP = 180
@@ -45,24 +46,47 @@ QUEBRADO_GAP = 180
 STARTS_SORTED = sorted(TURNOS.keys())
 
 
+def _split_hours_quebrado(start_m: int, end_m: int) -> tuple:
+    """
+    split_hours con corte diurna/mixta en 19:00 (no 19:30).
+    Solo para extras de quebrado en cocina.
+    """
+    if end_m == start_m:
+        return 0.0, 0.0, 0.0
+    if end_m < start_m:
+        end_m += 24 * 60
+    while start_m >= 1440:
+        start_m -= 1440
+        end_m   -= 1440
+    segs = [
+        (0,    300,  'noc'), (300,  1140, 'diu'),
+        (1140, 1350, 'mix'), (1350, 1440, 'noc'),
+        (1440, 1740, 'noc'), (1740, 2580, 'diu'),
+        (2580, 2790, 'mix'), (2790, 2880, 'noc'),
+    ]
+    diu = mix = noc = 0
+    for ss, se, tp in segs:
+        os_ = max(start_m, ss)
+        oe_ = min(end_m, se)
+        if oe_ > os_:
+            mins = oe_ - os_
+            if tp == 'diu':   diu += mins
+            elif tp == 'mix': mix += mins
+            else:             noc += mins
+    return r2(diu / 60), r2(mix / 60), r2(noc / 60)
+
+
 def detect_turno(entry_m: int) -> tuple:
-    """
-    Detecta el turno al que corresponde una entrada.
-    Retorna (turno_h, early_min, late_min).
-    """
-    # 1. Dentro de tolerancia (+-10min) → ese turno
     for h in STARTS_SORTED:
         turno_m = h * 60
         diff    = entry_m - turno_m
         if -TOLERANCE_MIN <= diff <= TOLERANCE_MIN:
             return h, 0, max(0, diff)
 
-    # 2. Antes del primer turno → anticipada
     if entry_m < STARTS_SORTED[0] * 60:
         early_min = STARTS_SORTED[0] * 60 - entry_m
         return STARTS_SORTED[0], early_min, 0
 
-    # 3. Fuera de tolerancia → turno más cercano
     best_h    = STARTS_SORTED[0]
     best_diff = 999999
     for h in STARTS_SORTED:
@@ -168,7 +192,6 @@ def _calcular_turno(fecha, turno_h, entry_m, exit_m,
 
     over_min = max(0, exit_rounded - sched_end)
 
-    # ── CONFIANZA: todas las horas como ordinarias ────────────
     if es_confianza:
         actual_ord = exit_rounded - entry_count
         d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
@@ -217,7 +240,7 @@ def _calcular_quebrado(fecha, punches, punch_mins,
     B1: entrada redondeada → Break Out redondeado
     B2: Break In → salida redondeada
     Ordinarias: 7h distribuidas entre B1 y B2
-    Extras: calculadas con split_hours según donde caigan
+    Extras: calculadas con _split_hours_quebrado (corte 19:00)
     """
     b1_mins = punch_mins[:split_idx + 1]
     b2_mins = punch_mins[split_idx + 1:]
@@ -263,8 +286,8 @@ def _calcular_quebrado(fecha, punches, punch_mins,
     h2 = (exit2_r - entry2_c) / 60
     if h1 < 0: h1 += 24
     if h2 < 0: h2 += 24
-    total    = h1 + h2
-    ord_h    = 7
+    total = h1 + h2
+    ord_h = 7
 
     # Ordinarias distribuidas entre B1 y B2
     ord_b1 = min(h1, ord_h)
@@ -277,13 +300,13 @@ def _calcular_quebrado(fecha, punches, punch_mins,
     mix_o = r2(mx1 + mx2)
     noc_o = r2(n1 + n2)
 
-    # Extras: lo que sobre de 7h → split_hours dinámico
+    # Extras: lo que sobre de 7h → _split_hours_quebrado (corte 19:00)
     xd = xm = xn = 0.0
     if not es_confianza:
         over_total = round((total - ord_h) * 60)
         if over_total > 0:
             xs = entry2_c + int(ord_b2 * 60)
-            xd2, xm2, xn2 = split_hours(xs, xs + over_total)
+            xd2, xm2, xn2 = _split_hours_quebrado(xs, xs + over_total)
             xd = r2(xd + xd2)
             xm = r2(xm + xm2)
             xn = r2(xn + xn2)
