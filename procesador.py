@@ -174,12 +174,6 @@ def make_libre(eid, first, last, dept, tipo, fecha_str):
 def calcular_resultado(dept, fecha_str, punches_check, punches_todos,
                        tipo, is_conf, es_nocturno=False, exit_str=None,
                        eid=None):
-    """
-    Llama al calculador correcto según el departamento.
-
-    punches_check: solo Check In / Check Out (para depts normales)
-    punches_todos: todas las marcas ordenadas (para quebrados)
-    """
     if dept == 'SEGURIDAD':
         return seguridad.calcular(
             fecha_str, punches_check,
@@ -333,9 +327,11 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
 
+            # ── FIX GREIVIN: filtrar Check Outs de madrugada si hay
+            # cualquier Check In después de 06:30 ──────────────────
             if check_ins and check_outs:
-                first_in_m = t2m(check_ins[0])
-                if first_in_m >= 6 * 60 + 30:
+                has_daytime_in = any(t2m(t) >= 6 * 60 + 30 for t in check_ins)
+                if has_daytime_in:
                     check_outs = [t for t in check_outs if t2m(t) > 6 * 60 + 30]
 
             if not check_ins and not check_outs:
@@ -426,22 +422,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                         eid, first, last, dept, tipo, fecha_str,
                         check_ins[-1], '?', res
                     ))
-                continue
-
-                punches_quebrado = sorted(check_ins + check_outs +
-                    [t for t, s in day_punches if s in ('Break Out', 'Break In')],
-                    key=lambda x: t2m(x))
-                if dept == 'AMA DE LLAVES':
-                    res = ama_de_llaves.calcular(fecha_str, punches_quebrado)
-                else:
-                    res = quebrado.calcular(
-                        fecha_str, punches_quebrado, dept,
-                        es_confianza=is_conf
-                    )
-                records.append(make_record(
-                    eid, first, last, dept, tipo, fecha_str,
-                    check_ins[0], check_outs[-1], res
-                ))
                 continue
 
             salidas_usadas = set()
