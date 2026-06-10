@@ -31,9 +31,7 @@ EMP_MAP = {
     22:  ('SOSTENIBILIDAD',    False),
     47:  ('PROVEEDURIA',       False),
     54:  ('PROVEEDURIA',       False),
-    # 65: Mónica — outsourcing, excluida
     84:  ('CONTABILIDAD',      False),
-    # 1: Joseph Arroyo — outsourcing, excluido
     138: ('AMA DE LLAVES',     True),
     141: ('ALIMENTOS COCINA',  True),
     121: ('AMA DE LLAVES',     True),
@@ -47,13 +45,10 @@ EMP_MAP = {
     36:  ('RESTAURANTE SALON', True),
 }
 
-# Empleados excluidos de la nómina (outsourcing u otros)
-EXCLUIDOS = {1, 65}  # Joseph Arroyo, Mónica — outsourcing
+EXCLUIDOS = {1, 65}
 
-# Punch states
 CHECK_IN_STATES  = {'Check In', 'Overtime In'}
 CHECK_OUT_STATES = {'Check Out', 'Overtime Out'}
-# Break In/Out solo se usan para quebrados — se pasan como punches crudos
 
 # ── HELPERS ──────────────────────────────────────────────────
 
@@ -123,7 +118,6 @@ def leer_biotime(biotime_path):
         return nombre_fn_a_eid.get(fn.lower(), float('nan'))
 
     df['Employee_ID'] = df.apply(inferir_eid, axis=1)
-
     df = df.sort_values(['Employee_ID', 'Date', 'Time_sort']).reset_index(drop=True)
     df = df.drop(columns=['Time_sort'])
     return df
@@ -327,14 +321,20 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
 
-            # ── FIX GREIVIN: filtrar Check Outs de madrugada si hay
-            # cualquier Check In después de 06:30 ──────────────────
-            if check_ins and check_outs:
-                has_daytime_in = any(t2m(t) >= 6 * 60 + 30 for t in check_ins)
-                if has_daytime_in:
-                    check_outs = [t for t in check_outs if t2m(t) > 6 * 60 + 30]
+            # ── FILTRO MADRUGADA ──────────────────────────────
+            # Si hay cualquier punch después de 06:30, ignorar
+            # todos los punches antes de 06:30 (son del turno anterior)
+            CORTE = 6 * 60 + 30
+            if any(t2m(t) >= CORTE for t in [t for t, s in day_punches]):
+                check_ins  = [t for t in check_ins  if t2m(t) >= CORTE]
+                check_outs = [t for t in check_outs if t2m(t) >= CORTE]
+                todos      = [t for t in todos      if t2m(t) >= CORTE]
 
             if not check_ins and not check_outs:
+                records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
+                continue
+
+            if not check_ins:
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
 
@@ -377,9 +377,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
 
             break_outs = [t for t, s in day_punches if s == 'Break Out']
             break_ins  = [t for t, s in day_punches if s == 'Break In']
-
-            DEPTS_SIN_QUEBRADO = {'SPA', 'CONTABILIDAD', 'SOSTENIBILIDAD',
-                                   'RH', 'PROVEEDURIA'}
 
             if break_outs and break_ins and check_ins and dept == 'RECEPCION':
                 entry_principal = t2m(check_ins[-1])
