@@ -1,5 +1,5 @@
 # ============================================================
-# CALCULADOR ALIMENTOS COCINA — v1.1
+# CALCULADOR ALIMENTOS COCINA — v1.2
 # Turnos y reglas fijas (validadas con Andry):
 #   T1: 06:00-15:00 → 8h ord + 1h xd fija
 #   T2: 06:00-12:00 / 17:00-22:00 (quebrado) → 7h ord + 4h xm fija
@@ -95,6 +95,12 @@ def calcular(fecha: str, punches_raw: list,
     # ── NOCTURNO CRUZADO ─────────────────────────────────────
     if es_nocturno and exit_str:
         exit_m = t2m(exit_str)
+        # Filtrar punches de madrugada si hay alguno después de 06:30
+        punches_filtrados = punches
+        if any(t2m(p) >= 6 * 60 + 30 for p in punches):
+            punches_filtrados = [p for p in punches if t2m(p) >= 6 * 60 + 30]
+        entry_str = punches_filtrados[0]
+        entry_m   = t2m(entry_str)
         if exit_m <= entry_m:
             exit_m += 24 * 60
         turno_h, early_min, late_min = detect_turno(entry_m)
@@ -276,7 +282,6 @@ def _calcular_quebrado(fecha, punches, punch_mins,
     if not es_confianza:
         over_total = round((total - ord_h) * 60)
         if over_total > 0:
-            # Extras del B2 (después de las ordinarias de B2)
             xs = entry2_c + int(ord_b2 * 60)
             xd2, xm2, xn2 = split_hours(xs, xs + over_total)
             xd = r2(xd + xd2)
