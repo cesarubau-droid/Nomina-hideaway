@@ -1,5 +1,5 @@
 # ============================================================
-# CALCULADOR ALIMENTOS COCINA — v1.3
+# CALCULADOR ALIMENTOS COCINA — v1.4
 # Turnos y reglas fijas (validadas con Andry):
 #   T1: 06:00-15:00 → 8h ord + 1h xd fija
 #   T2: 06:00-12:00 / 17:00-22:00 (quebrado) → 7h ord + 4h xm fija
@@ -11,6 +11,7 @@
 # Salida tardía adicional → split_hours desde fin del turno
 # Llegada anticipada → xd (regla 25min)
 # Quebrado: corte diurna/mixta en 19:00 (no 19:30)
+# Turno flexible: late_min > 40 → horas reales como ordinarias
 # Feriados: todas las horas se duplican
 # ============================================================
 
@@ -42,6 +43,9 @@ T2_XM_FIJA = 4.0
 
 # Gap mínimo para detectar turno quebrado: 3h
 QUEBRADO_GAP = 180
+
+# Umbral para turno flexible en cocina
+FLEXIBLE_MIN = 40
 
 STARTS_SORTED = sorted(TURNOS.keys())
 
@@ -119,7 +123,6 @@ def calcular(fecha: str, punches_raw: list,
     # ── NOCTURNO CRUZADO ─────────────────────────────────────
     if es_nocturno and exit_str:
         exit_m = t2m(exit_str)
-        # Filtrar punches de madrugada si hay alguno después de 06:30
         punches_filtrados = punches
         if any(t2m(p) >= 6 * 60 + 30 for p in punches):
             punches_filtrados = [p for p in punches if t2m(p) >= 6 * 60 + 30]
@@ -181,6 +184,38 @@ def _calcular_turno(fecha, turno_h, entry_m, exit_m,
     sched_end, ord_h, xd_fija, xm_fija, xn_fija = turno_data
 
     is_late     = late_min > TOLERANCE_MIN
+    is_flexible = late_min > FLEXIBLE_MIN
+
+    # ── TURNO FLEXIBLE ────────────────────────────────────────
+    if is_flexible:
+        rem = entry_m % 60
+        if rem < 20:   entry_r = (entry_m // 60) * 60
+        elif rem < 45: entry_r = (entry_m // 60) * 60 + 30
+        else:          entry_r = (entry_m // 60 + 1) * 60
+
+        sched_ref = entry_r + 8 * 60
+        if exit_m <= entry_r:
+            exit_m += 24 * 60
+        exit_r = round_exit(exit_m, sched_ref)
+        if exit_r <= entry_r:
+            exit_r += 24 * 60
+
+        actual_ord = exit_r - entry_r
+        d_o, mx_o, n_o = split_hours(entry_r, entry_r + actual_ord)
+
+        is_fer, fer_name = es_feriado(fecha)
+        nota = f'★ Feriado: {fer_name}' if is_fer else 'Horario flexible — ajustar manualmente'
+
+        return {
+            'diu_o': r2(d_o), 'mix_o': r2(mx_o), 'noc_o': r2(n_o),
+            'xd': 0.0, 'xm': 0.0, 'xn': 0.0,
+            'status': 'Flexible',
+            'nota': nota,
+            'entry_red': m2t(entry_r),
+            'exit_red':  m2t(exit_r % 1440),
+        }
+
+    # ── TURNO NORMAL ─────────────────────────────────────────
     entry_count = (turno_h * 60) + LATE_PENALTY if is_late else turno_h * 60
 
     if exit_m <= entry_count:
