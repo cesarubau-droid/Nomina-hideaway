@@ -322,13 +322,23 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 continue
 
             # ── FILTRO MADRUGADA ──────────────────────────────
-            # Si hay cualquier punch después de 06:30, ignorar
-            # todos los punches antes de 06:30 (son del turno anterior)
-            CORTE = 6 * 60 + 30
-            if any(t2m(t) >= CORTE for t in [t for t, s in day_punches]):
-                check_ins  = [t for t in check_ins  if t2m(t) >= CORTE]
-                check_outs = [t for t in check_outs if t2m(t) >= CORTE]
-                todos      = [t for t in todos      if t2m(t) >= CORTE]
+            # Elimina Check Outs de madrugada que sean anteriores
+            # al primer Check In del día. Mantiene los que son
+            # posteriores al Check In (salidas de turno nocturno válidas).
+            if check_ins and check_outs:
+                first_in_m = t2m(check_ins[0])
+                check_outs_filtrados = [
+                    t for t in check_outs
+                    if t2m(t) >= 6 * 60 + 30 or t2m(t) > first_in_m
+                ]
+                if check_outs_filtrados:
+                    check_outs = check_outs_filtrados
+                # Reconstruir todos con check_outs filtrados
+                todos = sorted(
+                    check_ins + check_outs +
+                    [t for t, s in day_punches if s in ('Break In', 'Break Out')],
+                    key=lambda x: t2m(x)
+                )
 
             if not check_ins and not check_outs:
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
