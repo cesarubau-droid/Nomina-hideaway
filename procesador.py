@@ -322,9 +322,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 continue
 
             # ── FILTRO MADRUGADA ──────────────────────────────
-            # Elimina Check Outs de madrugada que sean anteriores
-            # al primer Check In del día. Mantiene los que son
-            # posteriores al Check In (salidas de turno nocturno válidas).
             if check_ins and check_outs:
                 first_in_m = t2m(check_ins[0])
                 check_outs_filtrados = [
@@ -333,7 +330,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                 ]
                 if check_outs_filtrados:
                     check_outs = check_outs_filtrados
-                # Reconstruir todos con check_outs filtrados
                 todos = sorted(
                     check_ins + check_outs +
                     [t for t, s in day_punches if s in ('Break In', 'Break Out')],
@@ -463,20 +459,19 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                         key=lambda x: t2m(x)
                     )
                     if next_outs:
-    exit_t = next_outs[0]
-    if eid == 141:
-        print(f"DEBUG 141 | fecha={fecha_str} | entry_t={entry_t} | exit_t={exit_t} | todos={todos}")
-    res = calcular_resultado(
-        dept, fecha_str,
-        [entry_t], todos,
-        tipo, is_conf,
-        es_nocturno=True, exit_str=exit_t,
-        eid=eid
-    )
-    records.append(make_record(
-        eid, first, last, dept, tipo,
-        fecha_str, entry_t, exit_t, res
-    ))
+                        exit_t = next_outs[0]
+                        if eid == 141:
+                            print(f"DEBUG 141 | fecha={fecha_str} | entry_t={entry_t} | exit_t={exit_t} | todos={todos}")
+                        res = calcular_resultado(
+                            dept, fecha_str,
+                            [entry_t], todos,
+                            tipo, is_conf,
+                            es_nocturno=True, exit_str=exit_t,
+                            eid=eid
+                        )
+                        records.append(make_record(
+                            eid, first, last, dept, tipo,
+                            fecha_str, entry_t, exit_t, res
                         ))
                     else:
                         res = empty('Sin salida — Andry ajusta',
