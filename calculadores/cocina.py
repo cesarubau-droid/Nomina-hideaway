@@ -12,6 +12,7 @@
 # Llegada anticipada → xd (regla 25min)
 # Quebrado: corte diurna/mixta en 19:00 (no 19:30)
 # Turno flexible: late_min > 40 → horas reales como ordinarias
+# Redondeo flexible: <25min antes de hora entera → hora entera, >=25min → media hora
 # Feriados: todas las horas se duplican
 # ============================================================
 
@@ -78,6 +79,23 @@ def _split_hours_quebrado(start_m: int, end_m: int) -> tuple:
             elif tp == 'mix': mix += mins
             else:             noc += mins
     return r2(diu / 60), r2(mix / 60), r2(noc / 60)
+
+
+def _redondear_entrada_flexible(entry_m: int) -> int:
+    """
+    Redondeo de entrada para turno flexible en cocina.
+    - Si rem == 0 → hora exacta
+    - Si faltan >= 25min para la hora entera siguiente → media hora anterior
+    - Si faltan < 25min para la hora entera siguiente → hora entera siguiente
+    """
+    rem = entry_m % 60
+    if rem == 0:
+        return entry_m
+    mins_to_next = 60 - rem
+    if mins_to_next <= 25:
+        return (entry_m // 60 + 1) * 60  # hora entera hacia arriba
+    else:
+        return (entry_m // 60) * 60 + 30  # media hora
 
 
 def detect_turno(entry_m: int) -> tuple:
@@ -188,10 +206,7 @@ def _calcular_turno(fecha, turno_h, entry_m, exit_m,
 
     # ── TURNO FLEXIBLE ────────────────────────────────────────
     if is_flexible:
-        rem = entry_m % 60
-        if rem < 20:   entry_r = (entry_m // 60) * 60
-        elif rem < 45: entry_r = (entry_m // 60) * 60 + 30
-        else:          entry_r = (entry_m // 60 + 1) * 60
+        entry_r = _redondear_entrada_flexible(entry_m)
 
         sched_ref = entry_r + 8 * 60
         if exit_m <= entry_r:
