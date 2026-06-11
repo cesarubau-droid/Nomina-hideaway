@@ -463,17 +463,20 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                         key=lambda x: t2m(x)
                     )
                     if next_outs:
-                        exit_t = next_outs[0]
-                        res = calcular_resultado(
-                            dept, fecha_str,
-                            [entry_t], todos,
-                            tipo, is_conf,
-                            es_nocturno=True, exit_str=exit_t,
-                            eid=eid
-                        )
-                        records.append(make_record(
-                            eid, first, last, dept, tipo,
-                            fecha_str, entry_t, exit_t, res
+    exit_t = next_outs[0]
+    if eid == 141:
+        print(f"DEBUG 141 | fecha={fecha_str} | entry_t={entry_t} | exit_t={exit_t} | todos={todos}")
+    res = calcular_resultado(
+        dept, fecha_str,
+        [entry_t], todos,
+        tipo, is_conf,
+        es_nocturno=True, exit_str=exit_t,
+        eid=eid
+    )
+    records.append(make_record(
+        eid, first, last, dept, tipo,
+        fecha_str, entry_t, exit_t, res
+    ))
                         ))
                     else:
                         res = empty('Sin salida — Andry ajusta',
