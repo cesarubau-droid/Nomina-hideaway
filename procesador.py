@@ -323,15 +323,11 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
 
             # ── FILTRO MADRUGADA ──────────────────────────────
             if check_ins and check_outs:
-                if eid == 141:
-                    print(f"DEBUG FILTRO | fecha={fecha_str} | check_ins={check_ins} | check_outs_antes={check_outs}")
                 first_in_m = t2m(check_ins[0])
                 check_outs_filtrados = [
                     t for t in check_outs
                     if t2m(t) >= 6 * 60 + 30 or t2m(t) > first_in_m
                 ]
-                if eid == 141:
-                    print(f"DEBUG FILTRO | first_in_m={first_in_m} | check_outs_despues={check_outs_filtrados}")
                 if check_outs_filtrados:
                     check_outs = check_outs_filtrados
                 todos = sorted(
@@ -360,7 +356,9 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                         todos_ext = todos + [next_outs[0]]
                         res = calcular_resultado(
                             dept, fecha_str, check_ins, todos_ext,
-                            tipo, is_conf, eid=eid
+                            tipo, is_conf,
+                            es_nocturno=True, exit_str=next_outs[0],
+                            eid=eid
                         )
                         records.append(make_record(
                             eid, first, last, dept, tipo, fecha_str,
@@ -464,8 +462,6 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
                     )
                     if next_outs:
                         exit_t = next_outs[0]
-                        if eid == 141:
-                            print(f"DEBUG 141 | fecha={fecha_str} | entry_t={entry_t} | exit_t={exit_t} | todos={todos}")
                         res = calcular_resultado(
                             dept, fecha_str,
                             [entry_t], todos,
