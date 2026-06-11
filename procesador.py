@@ -300,6 +300,9 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
             fecha_str   = d.strftime('%Y-%m-%d')
             day_punches = punches_map.get((eid, d), [])
 
+            if eid == 141:
+                print(f"TOP | fecha={fecha_str} | day_punches={day_punches}")
+
             if not day_punches:
                 records.append(make_libre(eid, first, last, dept, tipo, fecha_str))
                 continue
@@ -323,11 +326,15 @@ def procesar(biotime_path, emp_path, fecha_inicio, fecha_fin):
 
             # ── FILTRO MADRUGADA ──────────────────────────────
             if check_ins and check_outs:
+                if eid == 141:
+                    print(f"DEBUG FILTRO | fecha={fecha_str} | check_ins={check_ins} | check_outs_antes={check_outs}")
                 first_in_m = t2m(check_ins[0])
                 check_outs_filtrados = [
                     t for t in check_outs
                     if t2m(t) >= 6 * 60 + 30 or t2m(t) > first_in_m
                 ]
+                if eid == 141:
+                    print(f"DEBUG FILTRO | first_in_m={first_in_m} | check_outs_despues={check_outs_filtrados}")
                 if check_outs_filtrados:
                     check_outs = check_outs_filtrados
                 todos = sorted(
