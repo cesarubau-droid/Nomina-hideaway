@@ -1,6 +1,8 @@
 # ============================================================
 # CALCULADOR BASE — Funciones compartidas
-# Hotel Rio Celeste Hideaway — Nómina v4.0
+# Hotel Rio Celeste Hideaway — Nómina v4.1
+# Cambio: zona mixta ahora empieza a las 19:00 (antes 19:30)
+# Zona nocturna sigue intacta (22:30)
 # ============================================================
 
 from config import (
@@ -29,7 +31,7 @@ def r2(x) -> float:
 def split_hours(start_m: int, end_m: int) -> tuple:
     """
     Divide un bloque de tiempo en horas diurnas, mixtas y nocturnas.
-    Diurna: 05:00-19:30 | Mixta: 19:30-22:30 | Nocturna: 22:30-05:00
+    Diurna: 05:00-19:00 | Mixta: 19:00-22:30 | Nocturna: 22:30-05:00
     """
     if end_m == start_m:
         return 0.0, 0.0, 0.0
@@ -39,10 +41,10 @@ def split_hours(start_m: int, end_m: int) -> tuple:
         start_m -= 1440
         end_m   -= 1440
     segs = [
-        (0,    300,  'noc'), (300,  1170, 'diu'),
-        (1170, 1350, 'mix'), (1350, 1440, 'noc'),
-        (1440, 1740, 'noc'), (1740, 2610, 'diu'),
-        (2610, 2790, 'mix'), (2790, 2880, 'noc'),
+        (0,    300,  'noc'), (300,  1140, 'diu'),
+        (1140, 1350, 'mix'), (1350, 1440, 'noc'),
+        (1440, 1740, 'noc'), (1740, 2580, 'diu'),
+        (2580, 2790, 'mix'), (2790, 2880, 'noc'),
     ]
     diu = mix = noc = 0
     for ss, se, tp in segs:
