@@ -1,5 +1,5 @@
 # ============================================================
-# CALCULADOR SPA — v4.2
+# CALCULADOR SPA — v4.3
 # Turnos:
 #   06:00-14:00 → 8h ordinarias
 #   09:00-17:00 → 8h ordinarias
@@ -8,6 +8,7 @@
 #   14:00-21:00 → 7h ordinarias
 # Confianza: todas las horas van como ordinarias, sin extras
 # Regla 20/45 para extras
+# Llegada anticipada (≥25min antes) → entrada redondeada = turno - 25min
 # Feriados: todas las horas se duplican
 # ============================================================
 
@@ -45,7 +46,8 @@ def detect_turno(entry_m: int) -> tuple:
 
     for h in STARTS_SORTED:
         if h * 60 >= entry_m:
-            return h, 0, 0
+            early_min = h * 60 - entry_m
+            return h, early_min, 0
 
     last_h = STARTS_SORTED[-1]
     return last_h, 0, entry_m - last_h * 60
@@ -75,8 +77,15 @@ def calcular(fecha: str, punches_raw: list, es_confianza: bool = False) -> dict:
     turno_h, early_min, late_min = detect_turno(entry_m)
     sched_end, ord_h = TURNOS.get(turno_h, (21 * 60, 7))
 
-    is_late     = late_min > TOLERANCE_MIN
-    entry_count = turno_h * 60 + LATE_PENALTY if is_late else turno_h * 60
+    is_late       = late_min > TOLERANCE_MIN
+    is_anticipada = early_min >= 25 and not is_late
+
+    if is_late:
+        entry_count = turno_h * 60 + LATE_PENALTY
+    elif is_anticipada:
+        entry_count = turno_h * 60 - 25
+    else:
+        entry_count = turno_h * 60
 
     if exit_m <= entry_count:
         exit_m += 24 * 60
@@ -97,7 +106,7 @@ def calcular(fecha: str, punches_raw: list, es_confianza: bool = False) -> dict:
         d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
         xd = xm = xn = 0.0
 
-        if early_min > 0 and not is_late:
+        if is_anticipada:
             xd = r2(xd + calc_early(early_min))
 
         if over_min >= EXTRA_HALF_MIN:
@@ -116,6 +125,8 @@ def calcular(fecha: str, punches_raw: list, es_confianza: bool = False) -> dict:
         nota = nota_fer
     elif is_late:
         nota = f'Tardío: llegó {entry_str}, cuenta desde {m2t(entry_count)}'
+    elif is_anticipada:
+        nota = f'Llegó {entry_str}, cuenta desde {m2t(entry_count)} (+0.5h extra diurna)'
     else:
         nota = ''
 
