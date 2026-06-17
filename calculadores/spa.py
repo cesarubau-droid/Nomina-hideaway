@@ -1,5 +1,5 @@
 # ============================================================
-# CALCULADOR SPA — v4.3
+# CALCULADOR SPA — v4.4
 # Turnos:
 #   06:00-14:00 → 8h ordinarias
 #   09:00-17:00 → 8h ordinarias
@@ -9,6 +9,7 @@
 # Confianza: todas las horas van como ordinarias, sin extras
 # Regla 20/45 para extras
 # Llegada anticipada (≥25min antes) → entrada redondeada = turno - 25min
+#   pero la extra por anticipada solo cuenta si las ordinarias se completan
 # Feriados: todas las horas se duplican
 # ============================================================
 
@@ -95,6 +96,7 @@ def calcular(fecha: str, punches_raw: list, es_confianza: bool = False) -> dict:
         exit_rounded += 24 * 60
 
     over_min = max(0, exit_rounded - sched_end)
+    total_trabajado = exit_rounded - entry_count
 
     # ── CONFIANZA: todas las horas como ordinarias ────────────
     if es_confianza:
@@ -102,11 +104,18 @@ def calcular(fecha: str, punches_raw: list, es_confianza: bool = False) -> dict:
         d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
         xd = xm = xn = 0.0
     else:
-        actual_ord = min(exit_rounded - entry_count, ord_h * 60)
+        # La extra por anticipada solo cuenta si se completan las ordinarias
+        completa_ordinarias = total_trabajado >= ord_h * 60
+
+        if is_anticipada and completa_ordinarias:
+            actual_ord = ord_h * 60
+        else:
+            actual_ord = min(total_trabajado, ord_h * 60)
+
         d_o, mx_o, n_o = split_hours(entry_count, entry_count + actual_ord)
         xd = xm = xn = 0.0
 
-        if is_anticipada:
+        if is_anticipada and completa_ordinarias:
             xd = r2(xd + calc_early(early_min))
 
         if over_min >= EXTRA_HALF_MIN:
@@ -125,8 +134,10 @@ def calcular(fecha: str, punches_raw: list, es_confianza: bool = False) -> dict:
         nota = nota_fer
     elif is_late:
         nota = f'Tardío: llegó {entry_str}, cuenta desde {m2t(entry_count)}'
+    elif is_anticipada and not (es_confianza or total_trabajado >= ord_h * 60):
+        nota = f'Llegó {entry_str} pero no completó {ord_h}h ordinarias — sin extra'
     elif is_anticipada:
-        nota = f'Llegó {entry_str}, cuenta desde {m2t(entry_count)} (+0.5h extra diurna)'
+        nota = f'Llegó {entry_str}, cuenta desde {m2t(entry_count)} (+extra diurna)'
     else:
         nota = ''
 
